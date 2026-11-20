@@ -7,17 +7,32 @@ import { RepairMinigame } from './components/RepairMinigame';
 import { TitleScreen } from './components/TitleScreen';
 import { soundEngine } from './game/audio';
 import { CuecaGameEngine } from './game/engine';
-import { CUECA_TIERS, GameMode, HudSnapshot, MapId, WeaponSlot } from './game/types';
+import {
+  CHARACTERS,
+  CharacterId,
+  CUECA_TIERS,
+  Difficulty,
+  EmoteId,
+  GameMode,
+  HudSnapshot,
+  MapId,
+  WeaponSlot,
+} from './game/types';
 
 const INITIAL_HUD: HudSnapshot = {
   phase: 'title',
   mode: 'deathmatch',
   mapId: 'canteiro',
+  difficulty: 'normal',
+  selectedCharacter: CHARACTERS[0],
   hp: 100,
   maxHp: 100,
   hasCueca: true,
+  playerCuecaInPlay: true,
   cuecaDamaged: false,
   cuecaTier: CUECA_TIERS[0],
+  nextCuecaTier: CUECA_TIERS[1],
+  careerScore: 0,
   score: 0,
   kills: 0,
   deaths: 0,
@@ -33,10 +48,11 @@ const INITIAL_HUD: HudSnapshot = {
   roundWinsPlayer: 0,
   roundWinnerText: '',
   aliveCuecasCount: 6,
+  airborneCuecasCount: 0,
   totalFightersCount: 6,
   minimapActors: [],
   minimapWalls: [],
-  arenaHalfSize: 18,
+  arenaHalfSize: 44,
   killfeed: [],
   repair: {
     active: false,
@@ -52,6 +68,30 @@ const INITIAL_HUD: HudSnapshot = {
   hitMarkerHeadshot: false,
   playerAlive: true,
   respawnTimer: 0,
+  activeBuffs: {
+    speedTimer: 0,
+    damageTimer: 0,
+    shieldTimer: 0,
+    slipTimer: 0,
+  },
+  killCam: {
+    active: false,
+    killerName: '',
+    killerRole: '',
+    killerFaction: 'villains',
+    killerCuecaName: '',
+    killerCuecaColor: '#ffffff',
+    killerCuecaAccent: '#60a5fa',
+    weaponName: 'Boing-47',
+    headshot: false,
+    timeRemaining: 0,
+    totalTime: 2.6,
+  },
+  dailyChallenges: [],
+  unlockedExclusiveCuecaIds: [],
+  equippedExclusiveCuecaId: null,
+  emoteCooldown: 0,
+  activeEmote: null,
 };
 
 export default function App() {
@@ -61,6 +101,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [selectedMode, setSelectedMode] = useState<GameMode>('deathmatch');
   const [selectedMap, setSelectedMap] = useState<MapId>('canteiro');
+  const [selectedCharacter, setSelectedCharacter] = useState<CharacterId>(CHARACTERS[0].id);
+  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [muted, setMuted] = useState(false);
   const [hud, setHud] = useState<HudSnapshot>(INITIAL_HUD);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
@@ -103,22 +145,42 @@ export default function App() {
   const handleSelectMode = useCallback(
     (mode: GameMode) => {
       setSelectedMode(mode);
-      engineRef.current?.previewMapOnTitle(selectedMap, mode);
+      engineRef.current?.previewMapOnTitle(selectedMap, mode, selectedCharacter, difficulty);
     },
-    [selectedMap]
+    [selectedMap, selectedCharacter, difficulty]
   );
 
   const handleSelectMap = useCallback(
     (mapId: MapId) => {
       setSelectedMap(mapId);
-      engineRef.current?.previewMapOnTitle(mapId, selectedMode);
+      engineRef.current?.previewMapOnTitle(mapId, selectedMode, selectedCharacter, difficulty);
     },
-    [selectedMode]
+    [selectedMode, selectedCharacter, difficulty]
+  );
+
+  const handleSelectCharacter = useCallback(
+    (charId: CharacterId) => {
+      setSelectedCharacter(charId);
+      engineRef.current?.previewMapOnTitle(selectedMap, selectedMode, charId, difficulty);
+    },
+    [selectedMap, selectedMode, difficulty]
+  );
+
+  const handleSelectDifficulty = useCallback(
+    (diff: Difficulty) => {
+      setDifficulty(diff);
+      engineRef.current?.previewMapOnTitle(selectedMap, selectedMode, selectedCharacter, diff);
+    },
+    [selectedMap, selectedMode, selectedCharacter]
   );
 
   const handleStart = useCallback(() => {
-    engineRef.current?.startMatch(selectedMap, selectedMode);
-  }, [selectedMap, selectedMode]);
+    engineRef.current?.startMatch(selectedMap, selectedMode, selectedCharacter, difficulty);
+  }, [selectedMap, selectedMode, selectedCharacter, difficulty]);
+
+  const handleEquipCueca = useCallback((cuecaId: string | null) => {
+    engineRef.current?.equipExclusiveCueca(cuecaId);
+  }, []);
 
   const handleToggleMute = useCallback(() => {
     setMuted((prev) => {
@@ -153,6 +215,11 @@ export default function App() {
     (idx: number) => engineRef.current?.submitRepairNode(idx),
     []
   );
+  const handleSkipKillCam = useCallback(() => engineRef.current?.skipKillCam(), []);
+  const handleTriggerEmote = useCallback(
+    (emote: EmoteId) => engineRef.current?.triggerEmote(emote),
+    []
+  );
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-[#1e1b2e]">
@@ -165,12 +232,20 @@ export default function App() {
         <TitleScreen
           mode={selectedMode}
           mapId={selectedMap}
+          characterId={selectedCharacter}
+          difficulty={difficulty}
           muted={muted}
           currentTier={hud.cuecaTier}
           nextTier={hud.nextCuecaTier}
           careerScore={hud.careerScore}
+          dailyChallenges={hud.dailyChallenges}
+          unlockedExclusiveCuecaIds={hud.unlockedExclusiveCuecaIds}
+          equippedExclusiveCuecaId={hud.equippedExclusiveCuecaId}
           onSelectMode={handleSelectMode}
           onSelectMap={handleSelectMap}
+          onSelectCharacter={handleSelectCharacter}
+          onSelectDifficulty={handleSelectDifficulty}
+          onEquipCueca={handleEquipCueca}
           onToggleMute={handleToggleMute}
           onStart={handleStart}
         />
@@ -186,6 +261,8 @@ export default function App() {
             onPause={handlePause}
             onSwitchWeapon={handleSwitchWeapon}
             onReload={handleReload}
+            onSkipKillCam={handleSkipKillCam}
+            onTriggerEmote={handleTriggerEmote}
           />
 
           <RepairMinigame
@@ -195,7 +272,7 @@ export default function App() {
           />
 
           <MobileControls
-            visible={isTouchDevice && hud.phase === 'playing'}
+            visible={isTouchDevice && hud.phase === 'playing' && hud.playerAlive}
             hud={hud}
             onMove={handleMobileMove}
             onAim={handleMobileAim}
@@ -203,6 +280,7 @@ export default function App() {
             onJump={handleJump}
             onSwitchWeapon={handleSwitchWeapon}
             onReload={handleReload}
+            onTriggerEmote={handleTriggerEmote}
           />
 
           <MatchModal
