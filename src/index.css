@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    touch-action: none;
+    overscroll-behavior: none;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+.font-display {
+  font-family: 'Fredoka', system-ui, sans-serif;
+}
+
+.font-mono-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes cueca-sway {
+  0%,
+  100% {
+    transform: rotate(-8deg) translateY(0px);
+  }
+  50% {
+    transform: rotate(8deg) translateY(-4px);
+  }
+}
+
+@keyframes killfeed-fly {
+  0% {
+    opacity: 0;
+    transform: translateX(24px) scale(0.92);
+  }
+  15% {
+    opacity: 1;
+    transform: translateX(0px) scale(1);
+  }
+  85% {
+    opacity: 1;
+    transform: translateX(0px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-16px) scale(0.95);
+  }
+}
+
+@keyframes cueca-spin-fly {
+  0% {
+    transform: translateY(0px) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translateY(-6px) rotate(180deg) scale(1.18);
+  }
+  100% {
+    transform: translateY(0px) rotate(360deg) scale(1);
+  }
+}
+
+@keyframes phone-rotate-hint {
+  0%,
+  20% {
+    transform: rotate(0deg);
+  }
+  50%,
+  80% {
+    transform: rotate(-90deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+.animate-cueca-sway {
+  animation: cueca-sway 1.4s ease-in-out infinite;
+}
+
+.animate-killfeed-item {
+  animation: killfeed-fly 4.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-cueca-icon {
+  animation: cueca-spin-fly 1.1s linear infinite;
+}
+
+.animate-phone-rotate {
+  animation: phone-rotate-hint 2.2s ease-in-out infinite;
+}
