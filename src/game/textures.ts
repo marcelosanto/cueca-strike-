@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CuecaTier } from './types';
+import { CuecaTier, EmoteId } from './types';
 
 const cuecaTextureCache = new Map<string, THREE.CanvasTexture>();
 
@@ -129,6 +129,82 @@ export function createCuecaTexture(
         ctx.fillRect(-8, -8, 16, 16);
         ctx.restore();
       }
+    }
+  } else if (tier.pattern === 'watermelon') {
+    // Juicy watermelon rind border + black seeds
+    ctx.fillStyle = '#22c55e';
+    ctx.fillRect(0, 214, 256, 42);
+    ctx.fillStyle = '#dcfce7';
+    ctx.fillRect(0, 204, 256, 10);
+    ctx.fillStyle = '#1e1b2e';
+    for (let i = 0; i < 24; i++) {
+      const sx = ((i * 47) % 232) + 12;
+      const sy = ((i * 67) % 140) + 56;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, 3, 6, (i % 4) * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (tier.pattern === 'tiger') {
+    // Bold tiger stripes
+    ctx.fillStyle = '#1e1b2e';
+    for (let y = 54; y < 256; y += 34) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(108, y + 14);
+      ctx.lineTo(0, y + 22);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(256, y + 12);
+      ctx.lineTo(140, y + 26);
+      ctx.lineTo(256, y + 34);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else if (tier.pattern === 'pizza') {
+    // Melted cheese crust + pepperoni slices + basil leaves
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(0, 212, 256, 44);
+    for (let i = 0; i < 16; i++) {
+      const px = ((i * 61) % 220) + 18;
+      const py = ((i * 53) % 145) + 55;
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.arc(px, py, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fca5a5';
+      ctx.beginPath();
+      ctx.arc(px - 4, py - 4, 3, 0, Math.PI * 2);
+      ctx.fill();
+      if (i % 3 === 0) {
+        ctx.fillStyle = '#16a34a';
+        ctx.fillRect(px + 12, py + 8, 9, 5);
+      }
+    }
+  } else if (tier.pattern === 'rainbow') {
+    // Vibrant synthwave rainbow stripes + stars
+    const colors = ['#f43f5e', '#fb923c', '#facc15', '#22c55e', '#38bdf8', '#a855f7'];
+    const bandH = Math.ceil(214 / colors.length);
+    colors.forEach((c, idx) => {
+      ctx.fillStyle = c;
+      ctx.fillRect(0, 42 + idx * bandH, 256, bandH + 1);
+    });
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 18; i++) {
+      ctx.beginPath();
+      ctx.arc(((i * 49) % 236) + 10, ((i * 73) % 190) + 52, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (tier.pattern === 'cow') {
+    // Playful cow spots
+    ctx.fillStyle = '#1e293b';
+    for (let i = 0; i < 18; i++) {
+      const cx = ((i * 67) % 228) + 14;
+      const cy = ((i * 83) % 184) + 58;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, 14 + (i % 3) * 6, 10 + (i % 2) * 5, i * 0.7, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -289,6 +365,148 @@ export function createContactShadowTexture(): THREE.CanvasTexture {
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+export function createEmoteTexture(
+  emote: EmoteId,
+  maxAnisotropy = 4
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.clearRect(0, 0, 256, 256);
+
+  const borderMap: Record<EmoteId, string> = {
+    'thumbs-up': '#facc15',
+    cueca: '#38bdf8',
+    gg: '#22c55e',
+    laugh: '#fb7185',
+  };
+  const border = borderMap[emote];
+
+  // Comic speech bubble with tail
+  ctx.fillStyle = '#1e1b2e';
+  ctx.strokeStyle = border;
+  ctx.lineWidth = 12;
+  ctx.beginPath();
+  ctx.roundRect(22, 18, 212, 178, 44);
+  ctx.fill();
+  ctx.stroke();
+
+  // Bubble pointer tail
+  ctx.fillStyle = '#1e1b2e';
+  ctx.beginPath();
+  ctx.moveTo(106, 190);
+  ctx.lineTo(128, 238);
+  ctx.lineTo(150, 190);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = border;
+  ctx.lineWidth = 10;
+  ctx.beginPath();
+  ctx.moveTo(106, 194);
+  ctx.lineTo(128, 238);
+  ctx.lineTo(150, 194);
+  ctx.stroke();
+
+  if (emote === 'thumbs-up') {
+    // Cuff
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.roundRect(62, 102, 34, 62, 10);
+    ctx.fill();
+    // Hand & Thumb up
+    ctx.fillStyle = '#facc15';
+    ctx.strokeStyle = '#fff8f0';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.roundRect(96, 96, 86, 68, 18);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.roundRect(114, 42, 32, 66, 15);
+    ctx.fill();
+    ctx.stroke();
+    // Sparkles
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(64, 58, 7, 0, Math.PI * 2);
+    ctx.arc(192, 64, 6, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (emote === 'cueca') {
+    // Iconic Cueca badge
+    ctx.fillStyle = '#fff8f0';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(58, 60);
+    ctx.lineTo(198, 60);
+    ctx.lineTo(188, 108);
+    ctx.quadraticCurveTo(164, 118, 152, 160);
+    ctx.lineTo(104, 160);
+    ctx.quadraticCurveTo(92, 118, 68, 108);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Waistband
+    ctx.fillStyle = '#f43f5e';
+    ctx.beginPath();
+    ctx.roundRect(56, 54, 144, 24, 6);
+    ctx.fill();
+    // Polka dots
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath();
+    ctx.arc(104, 108, 9, 0, Math.PI * 2);
+    ctx.arc(152, 108, 9, 0, Math.PI * 2);
+    ctx.arc(128, 134, 8, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (emote === 'gg') {
+    ctx.fillStyle = '#22c55e';
+    ctx.font = 'bold 88px Fredoka, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('GG!', 128, 112);
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath();
+    ctx.arc(54, 58, 8, 0, Math.PI * 2);
+    ctx.arc(202, 58, 8, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Laughing comic face + HAHA!
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(128, 114, 54, 0, Math.PI * 2);
+    ctx.fill();
+    // Happy squinting eyes
+    ctx.strokeStyle = '#1e1b2e';
+    ctx.lineWidth = 7;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(106, 98, 10, Math.PI, 0);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(150, 98, 10, Math.PI, 0);
+    ctx.stroke();
+    // Wide laughing mouth
+    ctx.fillStyle = '#f43f5e';
+    ctx.beginPath();
+    ctx.arc(128, 118, 28, 0, Math.PI);
+    ctx.closePath();
+    ctx.fill();
+    // HAHA label
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 28px Fredoka, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('HAHA!', 128, 50);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
   tex.needsUpdate = true;
   return tex;
 }

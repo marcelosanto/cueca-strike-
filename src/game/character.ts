@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { CuecaTier, TeamId, WeaponSlot } from './types';
-import { createContactShadowTexture, createCuecaTexture } from './textures';
+import { CharacterDef, CuecaTier, EmoteId, TeamId, WeaponSlot } from './types';
+import { createContactShadowTexture, createCuecaTexture, createEmoteTexture } from './textures';
 
 export interface CharacterRig {
   root: THREE.Group;
@@ -10,6 +10,8 @@ export interface CharacterRig {
   cuecaMesh: THREE.Mesh;
   cuecaLeftFlap: THREE.Mesh;
   cuecaRightFlap: THREE.Mesh;
+  capeMesh: THREE.Mesh | null;
+  shieldAura: THREE.Mesh;
   baldTuft: THREE.Group;
   sweatDrop: THREE.Mesh;
   leftFoot: THREE.Mesh;
@@ -20,25 +22,23 @@ export interface CharacterRig {
   leftEyePupil: THREE.Mesh;
   rightEyePupil: THREE.Mesh;
   shadowMesh: THREE.Mesh;
+  emoteSprite: THREE.Sprite;
   setCuecaTier: (tier: CuecaTier, team: TeamId, maxAnisotropy: number) => void;
   setWeapon: (slot: WeaponSlot) => void;
   setCuecaState: (hasCueca: boolean, damagedWobble: boolean) => void;
   setHitFlash: (active: boolean) => void;
+  setShieldActive: (active: boolean) => void;
+  setEmote: (emote: EmoteId | null, maxAnisotropy?: number) => void;
   dispose: () => void;
 }
 
-const SKIN_TONES = [0xffd6b8, 0xf7c19b, 0xe8a87c, 0xc6865c, 0xffe0cc];
-
 function buildCuecaGeometry(): THREE.BufferGeometry {
-  // Sculpted low-poly briefs dome that fits snugly over the giant head like a helmet
   const geo = new THREE.SphereGeometry(0.62, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.56);
-  // Slightly squash front-to-back and pinch side leg-openings for unmistakable underwear silhouette
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const y = pos.getY(i);
     const z = pos.getZ(i);
-    // Lift the sides (leg holes!)
     const sideLift = Math.pow(Math.abs(x) / 0.62, 2) * 0.22;
     pos.setY(i, y + sideLift * (1 - y / 0.62));
     pos.setZ(i, z * 0.94);
@@ -70,7 +70,6 @@ function buildWeaponModels(disposables: Array<{ dispose: () => void }>): Record<
   });
   disposables.push(metalMat, accentBlue, woodMat, grenadeMat);
 
-  // 1: Pistol ("Puff-9")
   const pistol = new THREE.Group();
   const pBarrelGeo = new THREE.BoxGeometry(0.14, 0.16, 0.46);
   const pGripGeo = new THREE.BoxGeometry(0.12, 0.24, 0.15);
@@ -86,7 +85,6 @@ function buildWeaponModels(disposables: Array<{ dispose: () => void }>): Record<
   pistol.add(pBarrel, pGrip, pTip);
   disposables.push(pBarrelGeo, pGripGeo, pTipGeo);
 
-  // 2: Assault Rifle ("Boing-47")
   const rifle = new THREE.Group();
   const rBodyGeo = new THREE.BoxGeometry(0.15, 0.18, 0.62);
   const rBarrelGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.42, 8);
@@ -105,7 +103,6 @@ function buildWeaponModels(disposables: Array<{ dispose: () => void }>): Record<
   rifle.add(rBody, rBarrel, rStock, rMag);
   disposables.push(rBodyGeo, rBarrelGeo, rStockGeo, rMagGeo);
 
-  // 3: Elastic Grenade
   const grenade = new THREE.Group();
   const gBodyGeo = new THREE.SphereGeometry(0.18, 12, 10);
   const gCapGeo = new THREE.CylinderGeometry(0.07, 0.08, 0.1, 8);
@@ -122,7 +119,7 @@ function buildWeaponModels(disposables: Array<{ dispose: () => void }>): Record<
 export function createBigHeadCharacter(
   team: TeamId,
   tier: CuecaTier,
-  skinIndex: number,
+  charDef: CharacterDef,
   maxAnisotropy: number
 ): CharacterRig {
   const disposables: Array<{ dispose: () => void }> = [];
@@ -130,7 +127,6 @@ export function createBigHeadCharacter(
   const bodyPivot = new THREE.Group();
   root.add(bodyPivot);
 
-  // Ground contact shadow
   const shadowTex = createContactShadowTexture();
   const shadowMat = new THREE.MeshBasicMaterial({
     map: shadowTex,
@@ -138,20 +134,29 @@ export function createBigHeadCharacter(
     depthWrite: false,
     opacity: 0.45,
   });
-  const shadowGeo = new THREE.PlaneGeometry(1.5, 1.5);
+  const shadowGeo = new THREE.PlaneGeometry(1.55, 1.55);
   const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
   shadowMesh.rotation.x = -Math.PI / 2;
   shadowMesh.position.y = 0.025;
   root.add(shadowMesh);
   disposables.push(shadowTex, shadowMat, shadowGeo);
 
+  // Team tint blends smoothly in TDM while preserving character identity in FFA/Cueca King
   const suitColor =
-    team === 'blue' ? 0x2563eb : team === 'orange' ? 0xf97316 : 0x8b5cf6;
+    team === 'blue'
+      ? 0x2563eb
+      : team === 'orange'
+        ? 0xf97316
+        : charDef.suitColor;
   const vestColor =
-    team === 'blue' ? 0x1e3a8a : team === 'orange' ? 0x9a3412 : 0x4c1d95;
+    team === 'blue'
+      ? 0x1e3a8a
+      : team === 'orange'
+        ? 0x9a3412
+        : charDef.vestColor;
 
   const skinMat = new THREE.MeshStandardMaterial({
-    color: SKIN_TONES[skinIndex % SKIN_TONES.length],
+    color: charDef.skinTone,
     roughness: 0.65,
     metalness: 0.02,
   });
@@ -162,15 +167,20 @@ export function createBigHeadCharacter(
   });
   const vestMat = new THREE.MeshStandardMaterial({
     color: vestColor,
-    roughness: 0.55,
-    metalness: 0.15,
+    roughness: 0.52,
+    metalness: 0.18,
+  });
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: charDef.accentColor,
+    roughness: 0.35,
+    metalness: 0.25,
   });
   const shoeMat = new THREE.MeshStandardMaterial({
     color: 0x1e293b,
     roughness: 0.45,
     metalness: 0.2,
   });
-  disposables.push(skinMat, suitMat, vestMat, shoeMat);
+  disposables.push(skinMat, suitMat, vestMat, accentMat, shoeMat);
 
   // Small feet & stubby body (1:2 ratio vs HUGE head!)
   const footGeo = new THREE.BoxGeometry(0.24, 0.16, 0.34);
@@ -196,7 +206,6 @@ export function createBigHeadCharacter(
   bodyPivot.add(vest);
   disposables.push(torsoGeo, vestGeo);
 
-  // Stubby tactical arms holding weapon
   const armGeo = new THREE.CapsuleGeometry(0.11, 0.24, 4, 8);
   const leftArm = new THREE.Mesh(armGeo, suitMat);
   leftArm.position.set(-0.4, 0.56, 0.16);
@@ -216,7 +225,7 @@ export function createBigHeadCharacter(
   weaponMeshes[2].visible = false;
   weaponMeshes[3].visible = false;
 
-  // HUGE COMICAL HEAD (1:2 body-to-head scale!)
+  // HUGE COMICAL HEAD
   const headGroup = new THREE.Group();
   headGroup.position.set(0, 1.46, 0);
   bodyPivot.add(headGroup);
@@ -228,7 +237,6 @@ export function createBigHeadCharacter(
   headGroup.add(headMesh);
   disposables.push(headGeo);
 
-  // Expressive oversized cartoon eyes
   const eyeWhiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
   const pupilMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.15 });
   const browMat = new THREE.MeshStandardMaterial({ color: 0x3b2314, roughness: 0.8 });
@@ -249,17 +257,15 @@ export function createBigHeadCharacter(
   rightEyePupil.position.set(0.2, 0.04, 0.61);
   headGroup.add(leftEyePupil, rightEyePupil);
 
-  // Expressive determined eyebrows
   const browGeo = new THREE.BoxGeometry(0.22, 0.055, 0.08);
   const leftBrow = new THREE.Mesh(browGeo, browMat);
   leftBrow.position.set(-0.2, 0.21, 0.54);
-  leftBrow.rotation.z = -0.24;
+  leftBrow.rotation.z = charDef.faction === 'villains' ? 0.34 : -0.24;
   const rightBrow = new THREE.Mesh(browGeo, browMat);
   rightBrow.position.set(0.2, 0.21, 0.54);
-  rightBrow.rotation.z = 0.24;
+  rightBrow.rotation.z = charDef.faction === 'villains' ? -0.34 : 0.24;
   headGroup.add(leftBrow, rightBrow);
 
-  // Rosy cheeks + comical mouth
   const cheekGeo = new THREE.SphereGeometry(0.075, 8, 8);
   const cheekL = new THREE.Mesh(cheekGeo, blushMat);
   cheekL.scale.set(1.2, 0.7, 0.5);
@@ -274,7 +280,154 @@ export function createBigHeadCharacter(
   headGroup.add(mouthMesh);
   disposables.push(eyeGeo, pupilGeo, browGeo, cheekGeo, mouthGeo);
 
-  // Bald-head comic hair tuft + sweat drop (visible when cueca is destroyed!)
+  // BESPOKE HERO & VILLAIN ACCESSORIES (super visible from behind-the-player chase camera!)
+  let capeMesh: THREE.Mesh | null = null;
+  const acc = charDef.accessory;
+
+  if (acc === 'cape-hero' || acc === 'banana-king') {
+    const capeGeo = new THREE.BoxGeometry(0.68, 0.78, 0.06);
+    const capeMat = new THREE.MeshStandardMaterial({
+      color: acc === 'cape-hero' ? '#f43f5e' : '#eab308',
+      roughness: 0.65,
+    });
+    capeMesh = new THREE.Mesh(capeGeo, capeMat);
+    capeMesh.position.set(0, 0.48, -0.36);
+    capeMesh.rotation.x = 0.24;
+    capeMesh.castShadow = true;
+    bodyPivot.add(capeMesh);
+    disposables.push(capeGeo, capeMat);
+
+    if (acc === 'cape-hero') {
+      const maskGeo = new THREE.BoxGeometry(0.68, 0.16, 0.12);
+      const mask = new THREE.Mesh(maskGeo, accentMat);
+      mask.position.set(0, 0.05, 0.52);
+      headGroup.add(mask);
+      disposables.push(maskGeo);
+    } else {
+      // Banana badge on back of cape
+      const bBadgeGeo = new THREE.TorusGeometry(0.14, 0.04, 6, 12, Math.PI * 1.1);
+      const bBadgeMat = new THREE.MeshStandardMaterial({ color: '#fef08a', roughness: 0.4 });
+      const bBadge = new THREE.Mesh(bBadgeGeo, bBadgeMat);
+      bBadge.position.set(0, 0.52, -0.41);
+      bBadge.rotation.z = 0.5;
+      bodyPivot.add(bBadge);
+      disposables.push(bBadgeGeo, bBadgeMat);
+    }
+  } else if (acc === 'speed-visor') {
+    const visorGeo = new THREE.BoxGeometry(0.66, 0.14, 0.16);
+    const visorMat = new THREE.MeshStandardMaterial({
+      color: '#22d3ee',
+      emissive: 0x06b6d4,
+      emissiveIntensity: 0.45,
+      roughness: 0.2,
+    });
+    const visor = new THREE.Mesh(visorGeo, visorMat);
+    visor.position.set(0, 0.05, 0.52);
+    headGroup.add(visor);
+    // Ear speed-wings (readable from behind!)
+    const wingGeo = new THREE.BoxGeometry(0.08, 0.22, 0.34);
+    const wL = new THREE.Mesh(wingGeo, accentMat);
+    wL.position.set(-0.62, 0.06, -0.05);
+    wL.rotation.x = 0.35;
+    const wR = wL.clone();
+    wR.position.x = 0.62;
+    headGroup.add(wL, wR);
+    disposables.push(visorGeo, visorMat, wingGeo);
+  } else if (acc === 'fire-tank') {
+    const tankGeo = new THREE.CylinderGeometry(0.14, 0.14, 0.52, 10);
+    const tankMat = new THREE.MeshStandardMaterial({
+      color: '#facc15',
+      roughness: 0.3,
+      metalness: 0.5,
+    });
+    const tankL = new THREE.Mesh(tankGeo, tankMat);
+    tankL.position.set(-0.15, 0.54, -0.34);
+    const tankR = tankL.clone();
+    tankR.position.x = 0.15;
+    bodyPivot.add(tankL, tankR);
+    disposables.push(tankGeo, tankMat);
+  } else if (acc === 'ninja-band') {
+    const bandGeo = new THREE.CylinderGeometry(0.59, 0.59, 0.12, 16, 1, true);
+    const bandMat = new THREE.MeshStandardMaterial({
+      color: '#f43f5e',
+      roughness: 0.65,
+      side: THREE.DoubleSide,
+    });
+    const band = new THREE.Mesh(bandGeo, bandMat);
+    band.position.y = 0.18;
+    const tailGeo = new THREE.BoxGeometry(0.1, 0.38, 0.04);
+    const tailL = new THREE.Mesh(tailGeo, bandMat);
+    tailL.position.set(-0.08, 0.02, -0.62);
+    tailL.rotation.set(0.35, 0, -0.25);
+    const tailR = new THREE.Mesh(tailGeo, bandMat);
+    tailR.position.set(0.08, 0.02, -0.62);
+    tailR.rotation.set(0.35, 0, 0.25);
+    headGroup.add(band, tailL, tailR);
+    disposables.push(bandGeo, bandMat, tailGeo);
+  } else if (acc === 'mad-goggles') {
+    const rimGeo = new THREE.TorusGeometry(0.16, 0.035, 8, 16);
+    const gMat = new THREE.MeshStandardMaterial({ color: '#e2e8f0', metalness: 0.75, roughness: 0.25 });
+    const gL = new THREE.Mesh(rimGeo, gMat);
+    gL.position.set(-0.2, 0.04, 0.56);
+    const gR = new THREE.Mesh(rimGeo, gMat);
+    gR.position.set(0.2, 0.04, 0.56);
+    const antGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.45, 6);
+    const ant = new THREE.Mesh(antGeo, accentMat);
+    ant.position.set(0.25, 0.65, -0.2);
+    headGroup.add(gL, gR, ant);
+    disposables.push(rimGeo, gMat, antGeo);
+  } else if (acc === 'devil-horns') {
+    const hornGeo = new THREE.ConeGeometry(0.11, 0.36, 8);
+    const hornMat = new THREE.MeshStandardMaterial({ color: '#1e1b2e', roughness: 0.4 });
+    const hL = new THREE.Mesh(hornGeo, hornMat);
+    hL.position.set(-0.42, 0.42, 0.05);
+    hL.rotation.z = 0.55;
+    const hR = new THREE.Mesh(hornGeo, hornMat);
+    hR.position.set(0.42, 0.42, 0.05);
+    hR.rotation.z = -0.55;
+    // Villain dark cape
+    const capeGeo = new THREE.BoxGeometry(0.68, 0.74, 0.06);
+    const capeMat = new THREE.MeshStandardMaterial({ color: '#4c0519', roughness: 0.7 });
+    capeMesh = new THREE.Mesh(capeGeo, capeMat);
+    capeMesh.position.set(0, 0.48, -0.36);
+    capeMesh.rotation.x = 0.22;
+    bodyPivot.add(capeMesh);
+    headGroup.add(hL, hR);
+    disposables.push(hornGeo, hornMat, capeGeo, capeMat);
+  } else if (acc === 'cyber-eye') {
+    const cyGeo = new THREE.SphereGeometry(0.165, 12, 10);
+    const cyMat = new THREE.MeshStandardMaterial({
+      color: '#f43f5e',
+      emissive: 0xf43f5e,
+      emissiveIntensity: 0.85,
+      roughness: 0.15,
+    });
+    const cyEye = new THREE.Mesh(cyGeo, cyMat);
+    cyEye.position.set(0.2, 0.04, 0.5);
+    const packGeo = new THREE.BoxGeometry(0.42, 0.44, 0.22);
+    const pack = new THREE.Mesh(packGeo, vestMat);
+    pack.position.set(0, 0.54, -0.32);
+    bodyPivot.add(pack);
+    headGroup.add(cyEye);
+    disposables.push(cyGeo, cyMat, packGeo);
+  }
+
+  // Translucent Shield Aura (shown when Shield bonus pickup is active)
+  const auraGeo = new THREE.SphereGeometry(1.18, 16, 12);
+  const auraMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0.22,
+    wireframe: true,
+    depthWrite: false,
+  });
+  const shieldAura = new THREE.Mesh(auraGeo, auraMat);
+  shieldAura.position.y = 1.05;
+  shieldAura.visible = false;
+  bodyPivot.add(shieldAura);
+  disposables.push(auraGeo, auraMat);
+
+  // Bald-head comic hair tuft + sweat drop
   const baldTuft = new THREE.Group();
   const strandGeo = new THREE.TorusGeometry(0.09, 0.022, 6, 12, Math.PI * 1.2);
   const s1 = new THREE.Mesh(strandGeo, browMat);
@@ -318,7 +471,6 @@ export function createBigHeadCharacter(
   cuecaMesh.castShadow = true;
   cuecaHelmet.add(cuecaMesh);
 
-  // Elastic waistband ring + flapping leg-hole cloth cuffs for lively cloth motion!
   const bandMat = new THREE.MeshStandardMaterial({
     color: teamBand || tier.secondaryColor,
     roughness: 0.5,
@@ -338,7 +490,6 @@ export function createBigHeadCharacter(
   cuecaRightFlap.rotation.z = -0.35;
   cuecaHelmet.add(cuecaLeftFlap, cuecaRightFlap);
 
-  // 3D Royal Crown Ornament (unlocked at Mythic Royal tier or Cueca King!)
   const crownOrnament = new THREE.Group();
   const crownMat = new THREE.MeshStandardMaterial({
     color: 0xfacc15,
@@ -363,6 +514,19 @@ export function createBigHeadCharacter(
 
   disposables.push(cuecaMat, cuecaGeo, bandMat, bandGeo, flapGeo, crownMat, crownBaseGeo, spikeGeo);
 
+  const emoteMat = new THREE.SpriteMaterial({
+    transparent: true,
+    depthTest: false,
+  });
+  const emoteSprite = new THREE.Sprite(emoteMat);
+  emoteSprite.position.set(0, 2.72, 0);
+  emoteSprite.scale.set(1.35, 1.35, 1);
+  emoteSprite.renderOrder = 10;
+  emoteSprite.visible = false;
+  root.add(emoteSprite);
+  const emoteTexCache = new Map<EmoteId, THREE.CanvasTexture>();
+  disposables.push(emoteMat);
+
   let hitFlashActive = false;
 
   return {
@@ -373,6 +537,8 @@ export function createBigHeadCharacter(
     cuecaMesh,
     cuecaLeftFlap,
     cuecaRightFlap,
+    capeMesh,
+    shieldAura,
     baldTuft,
     sweatDrop,
     leftFoot,
@@ -383,6 +549,7 @@ export function createBigHeadCharacter(
     leftEyePupil,
     rightEyePupil,
     shadowMesh,
+    emoteSprite,
     setCuecaTier(newTier, newTeam, aniso) {
       const tBand =
         newTeam === 'blue' ? '#2563eb' : newTeam === 'orange' ? '#f97316' : undefined;
@@ -408,7 +575,7 @@ export function createBigHeadCharacter(
       baldTuft.visible = !hasCueca;
       sweatDrop.visible = !hasCueca || damagedWobble;
       if (!hasCueca) {
-        mouthMesh.scale.set(1.2, 1.8, 1); // Comical shocked "O" mouth when bald!
+        mouthMesh.scale.set(1.2, 1.8, 1);
       } else {
         mouthMesh.scale.set(1, 1, 1);
       }
@@ -421,7 +588,25 @@ export function createBigHeadCharacter(
       suitMat.emissive.setHex(active ? 0xffffff : 0x000000);
       suitMat.emissiveIntensity = active ? 0.35 : 0;
     },
+    setShieldActive(active) {
+      shieldAura.visible = active;
+    },
+    setEmote(emote, aniso = 4) {
+      if (!emote) {
+        emoteSprite.visible = false;
+        return;
+      }
+      let tex = emoteTexCache.get(emote);
+      if (!tex) {
+        tex = createEmoteTexture(emote, aniso);
+        emoteTexCache.set(emote, tex);
+      }
+      emoteMat.map = tex;
+      emoteMat.needsUpdate = true;
+      emoteSprite.visible = true;
+    },
     dispose() {
+      for (const tex of emoteTexCache.values()) tex.dispose();
       for (const d of disposables) d.dispose();
     },
   };

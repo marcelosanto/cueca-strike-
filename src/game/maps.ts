@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MapId, MapObstacle } from './types';
+import { HazardType, MapBonusSpawn, MapHazardDef, MapId, MapObstacle } from './types';
 import {
   createContactShadowTexture,
   createCrateTexture,
@@ -15,9 +15,23 @@ export interface ArenaCollider {
   height: number;
 }
 
+export interface MapHazardInstance {
+  id: number;
+  type: HazardType;
+  x: number;
+  z: number;
+  group: THREE.Group;
+  tileTop?: THREE.Mesh;
+  springCoil?: THREE.Mesh;
+  triggerAnim: number;
+  cooldown: number;
+}
+
 export interface MapBuildResult {
   group: THREE.Group;
   colliders: ArenaCollider[];
+  hazards: MapHazardInstance[];
+  bonusSpawns: MapBonusSpawn[];
   arenaHalfSize: number;
   skyColor: number;
   fogDensity: number;
@@ -26,6 +40,7 @@ export interface MapBuildResult {
     orange: THREE.Vector3[];
     ffa: THREE.Vector3[];
   };
+  waypoints: THREE.Vector3[];
   minimapWalls: Array<{ x: number; z: number; w: number; d: number }>;
   disposables: Array<{ dispose: () => void }>;
 }
@@ -36,24 +51,14 @@ interface MapThemeConfig {
   groundPalette: { base: string; tile: string; accent: string; line: string };
   outerGroundColor: number;
   obstacles: MapObstacle[];
-}
-
-const ARENA_SCALE = 1.6;
-
-const EXTRA_COVER: MapObstacle[] = [];
-for (const sx of [-1, 1]) {
-  for (const sz of [-1, 1]) {
-    EXTRA_COVER.push({ x: sx * 19, z: sz * 11, w: 4.0, h: 1.5, d: 1.3, kind: 'barrier' });
-    EXTRA_COVER.push({ x: sx * 10, z: sz * 21, w: 1.6, h: 2.0, d: 3.6, kind: 'crate', color: '#d97706' });
-    EXTRA_COVER.push({ x: sx * 25, z: sz * 6, w: 2.2, h: 1.8, d: 2.2, kind: 'crate', color: '#b45309' });
-    EXTRA_COVER.push({ x: sx * 5, z: sz * 14, w: 2.6, h: 1.5, d: 1.3, kind: 'barrier' });
-  }
+  hazards: MapHazardDef[];
+  bonusSpawns: MapBonusSpawn[];
 }
 
 const MAP_CONFIGS: Record<MapId, MapThemeConfig> = {
   canteiro: {
     skyColor: 0xffe8c8,
-    fogDensity: 0.011,
+    fogDensity: 0.0055,
     groundPalette: {
       base: '#f2c185',
       tile: '#e7ae6b',
@@ -62,25 +67,64 @@ const MAP_CONFIGS: Record<MapId, MapThemeConfig> = {
     },
     outerGroundColor: 0xdba463,
     obstacles: [
-      // Center pipe & crate stack
-      { x: 0, z: 0, w: 3.2, h: 1.9, d: 3.2, kind: 'crate', color: '#e07a38' },
-      { x: -3.2, z: 1.5, w: 2.2, h: 1.4, d: 2.2, kind: 'pipe', color: '#f59e0b' },
-      { x: 3.2, z: -1.5, w: 2.2, h: 1.4, d: 2.2, kind: 'pipe', color: '#38bdf8' },
-      // Mid lane hazard barriers
-      { x: -7.5, z: -5.5, w: 4.2, h: 1.45, d: 1.3, kind: 'barrier' },
-      { x: 7.5, z: 5.5, w: 4.2, h: 1.45, d: 1.3, kind: 'barrier' },
-      { x: -7.5, z: 5.5, w: 1.5, h: 2.1, d: 3.8, kind: 'crate', color: '#d97706' },
-      { x: 7.5, z: -5.5, w: 1.5, h: 2.1, d: 3.8, kind: 'crate', color: '#d97706' },
-      // Flank cover
-      { x: 0, z: -10.5, w: 5.2, h: 1.6, d: 1.4, kind: 'barrier' },
-      { x: 0, z: 10.5, w: 5.2, h: 1.6, d: 1.4, kind: 'barrier' },
-      { x: -12.5, z: 0, w: 1.8, h: 2.2, d: 4.4, kind: 'crate', color: '#b45309' },
-      { x: 12.5, z: 0, w: 1.8, h: 2.2, d: 4.4, kind: 'crate', color: '#b45309' },
+      // Mid Double-Door style choke & Xbox crate (Dust2-inspired CS 1.6 proportions)
+      { x: -3.8, z: -2, w: 4.4, h: 2.6, d: 1.8, kind: 'wall', color: '#d97706' },
+      { x: 3.8, z: 2, w: 4.4, h: 2.6, d: 1.8, kind: 'wall', color: '#d97706' },
+      { x: 0, z: 7, w: 2.8, h: 1.8, d: 2.8, kind: 'crate', color: '#e07a38' },
+      { x: -1.5, z: -11, w: 3.2, h: 1.5, d: 1.6, kind: 'barrier' },
+
+      // Long A Lane & Bombsite A (East / North-East)
+      { x: 18, z: 10, w: 2.2, h: 2.8, d: 14, kind: 'wall', color: '#b45309' },
+      { x: 30, z: 12, w: 5.5, h: 1.6, d: 1.8, kind: 'barrier' },
+      { x: 28, z: -4, w: 3.2, h: 2.0, d: 3.2, kind: 'crate', color: '#e07a38' },
+      { x: 24, z: -22, w: 3.6, h: 2.2, d: 3.6, kind: 'crate', color: '#f59e0b' },
+      { x: 32, z: -26, w: 2.8, h: 1.6, d: 2.8, kind: 'pipe', color: '#38bdf8' },
+      { x: 14, z: -26, w: 5.0, h: 1.6, d: 1.6, kind: 'barrier' },
+
+      // B Tunnels & Bombsite B (West / North-West)
+      { x: -18, z: 10, w: 2.2, h: 2.8, d: 14, kind: 'wall', color: '#b45309' },
+      { x: -30, z: 8, w: 4.5, h: 2.0, d: 2.2, kind: 'pipe', color: '#f59e0b' },
+      { x: -28, z: -8, w: 3.4, h: 2.2, d: 3.4, kind: 'crate', color: '#d97706' },
+      { x: -24, z: -24, w: 3.8, h: 2.2, d: 3.8, kind: 'crate', color: '#e07a38' },
+      { x: -34, z: -20, w: 2.4, h: 2.6, d: 8.5, kind: 'wall', color: '#92400e' },
+      { x: -14, z: -24, w: 4.8, h: 1.5, d: 1.5, kind: 'barrier' },
+
+      // T-Side & CT-Side Spawn Cover
+      { x: -10, z: 28, w: 6.5, h: 1.7, d: 1.8, kind: 'barrier' },
+      { x: 10, z: 28, w: 6.5, h: 1.7, d: 1.8, kind: 'barrier' },
+      { x: 0, z: 22, w: 3.2, h: 1.9, d: 3.2, kind: 'pipe', color: '#f59e0b' },
+      { x: -10, z: -30, w: 6.0, h: 1.7, d: 1.8, kind: 'barrier' },
+      { x: 10, z: -30, w: 6.0, h: 1.7, d: 1.8, kind: 'barrier' },
+      { x: 0, z: -23, w: 3.4, h: 2.0, d: 3.4, kind: 'crate', color: '#d97706' },
+      { x: -33, z: 24, w: 3.5, h: 2.1, d: 3.5, kind: 'crate', color: '#b45309' },
+      { x: 33, z: 24, w: 3.5, h: 2.1, d: 3.5, kind: 'crate', color: '#b45309' },
+    ],
+    hazards: [
+      { x: -7, z: 10, type: 'banana' },
+      { x: 8, z: -8, type: 'banana' },
+      { x: -24, z: -12, type: 'banana' },
+      { x: 24, z: 12, type: 'banana' },
+      { x: 0, z: -18, type: 'banana' },
+      { x: -12, z: -1, type: 'trampoline' },
+      { x: 13, z: 4, type: 'trampoline' },
+      { x: -24, z: -3, type: 'trampoline' },
+      { x: 24, z: -15, type: 'trampoline' },
+      { x: 0, z: 16, type: 'trampoline' },
+    ],
+    bonusSpawns: [
+      { x: 0, z: 0, type: 'damage' },
+      { x: -13, z: -16, type: 'heal' },
+      { x: 13, z: 16, type: 'speed' },
+      { x: -30, z: -16, type: 'shield' },
+      { x: 30, z: -16, type: 'heal' },
+      { x: -30, z: 16, type: 'speed' },
+      { x: 30, z: 16, type: 'damage' },
+      { x: 0, z: -31, type: 'shield' },
     ],
   },
   mercado: {
     skyColor: 0xffdfd3,
-    fogDensity: 0.011,
+    fogDensity: 0.0055,
     groundPalette: {
       base: '#f6ead7',
       tile: '#ead4b4',
@@ -89,23 +133,59 @@ const MAP_CONFIGS: Record<MapId, MapThemeConfig> = {
     },
     outerGroundColor: 0xe2c799,
     obstacles: [
-      // Central fountain plaza
-      { x: 0, z: 0, w: 3.6, h: 1.55, d: 3.6, kind: 'fountain', color: '#38bdf8' },
-      // Market stalls with striped awnings
-      { x: -7.2, z: -6.2, w: 3.8, h: 2.4, d: 2.4, kind: 'awning', color: '#f43f5e' },
-      { x: 7.2, z: 6.2, w: 3.8, h: 2.4, d: 2.4, kind: 'awning', color: '#10b981' },
-      { x: -7.2, z: 6.2, w: 3.8, h: 2.4, d: 2.4, kind: 'awning', color: '#f59e0b' },
-      { x: 7.2, z: -6.2, w: 3.8, h: 2.4, d: 2.4, kind: 'awning', color: '#6366f1' },
-      // Fruit crates
-      { x: 0, z: -9.5, w: 3.4, h: 1.4, d: 1.6, kind: 'crate', color: '#fb7185' },
-      { x: 0, z: 9.5, w: 3.4, h: 1.4, d: 1.6, kind: 'crate', color: '#fb7185' },
-      { x: -12, z: 0, w: 1.8, h: 1.8, d: 4.0, kind: 'wall', color: '#f4a261' },
-      { x: 12, z: 0, w: 1.8, h: 1.8, d: 4.0, kind: 'wall', color: '#f4a261' },
+      // Central Bazaar Fountain & Connectors
+      { x: 0, z: 0, w: 4.8, h: 1.65, d: 4.8, kind: 'fountain', color: '#38bdf8' },
+      { x: -9, z: 0, w: 2.0, h: 2.4, d: 7.0, kind: 'wall', color: '#e76f51' },
+      { x: 9, z: 0, w: 2.0, h: 2.4, d: 7.0, kind: 'wall', color: '#e76f51' },
+
+      // 4 Market Quarters with Colorful Striped Awnings
+      { x: -20, z: -16, w: 5.2, h: 2.5, d: 3.0, kind: 'awning', color: '#f43f5e' },
+      { x: 20, z: 16, w: 5.2, h: 2.5, d: 3.0, kind: 'awning', color: '#10b981' },
+      { x: -20, z: 16, w: 5.2, h: 2.5, d: 3.0, kind: 'awning', color: '#f59e0b' },
+      { x: 20, z: -16, w: 5.2, h: 2.5, d: 3.0, kind: 'awning', color: '#6366f1' },
+
+      // Market Alley Walls & Fruit Stalls
+      { x: -30, z: -4, w: 4.8, h: 2.4, d: 2.8, kind: 'awning', color: '#ec4899' },
+      { x: 30, z: 4, w: 4.8, h: 2.4, d: 2.8, kind: 'awning', color: '#06b6d4' },
+      { x: -16, z: -29, w: 6.5, h: 2.3, d: 2.2, kind: 'wall', color: '#f4a261' },
+      { x: 16, z: 29, w: 6.5, h: 2.3, d: 2.2, kind: 'wall', color: '#f4a261' },
+      { x: 16, z: -29, w: 3.6, h: 1.7, d: 3.6, kind: 'crate', color: '#fb7185' },
+      { x: -16, z: 29, w: 3.6, h: 1.7, d: 3.6, kind: 'crate', color: '#fb7185' },
+
+      // Mid & Flank Fruit Crates
+      { x: 0, z: -16, w: 4.2, h: 1.5, d: 2.2, kind: 'crate', color: '#f97316' },
+      { x: 0, z: 16, w: 4.2, h: 1.5, d: 2.2, kind: 'crate', color: '#f97316' },
+      { x: -32, z: -24, w: 3.2, h: 1.8, d: 3.2, kind: 'crate', color: '#eab308' },
+      { x: 32, z: 24, w: 3.2, h: 1.8, d: 3.2, kind: 'crate', color: '#eab308' },
+      { x: -32, z: 24, w: 4.4, h: 1.6, d: 1.8, kind: 'barrier' },
+      { x: 32, z: -24, w: 4.4, h: 1.6, d: 1.8, kind: 'barrier' },
+    ],
+    hazards: [
+      { x: -5, z: 8, type: 'banana' },
+      { x: 6, z: -8, type: 'banana' },
+      { x: -22, z: 4, type: 'banana' },
+      { x: 22, z: -4, type: 'banana' },
+      { x: 0, z: 24, type: 'banana' },
+      { x: -13, z: -10, type: 'trampoline' },
+      { x: 13, z: 10, type: 'trampoline' },
+      { x: -26, z: -16, type: 'trampoline' },
+      { x: 26, z: 16, type: 'trampoline' },
+      { x: 0, z: -23, type: 'trampoline' },
+    ],
+    bonusSpawns: [
+      { x: 0, z: -8, type: 'heal' },
+      { x: 0, z: 8, type: 'speed' },
+      { x: -15, z: 0, type: 'damage' },
+      { x: 15, z: 0, type: 'shield' },
+      { x: -28, z: -14, type: 'heal' },
+      { x: 28, z: 14, type: 'damage' },
+      { x: -25, z: 24, type: 'shield' },
+      { x: 25, z: -24, type: 'speed' },
     ],
   },
   base: {
     skyColor: 0xdbeafe,
-    fogDensity: 0.011,
+    fogDensity: 0.0055,
     groundPalette: {
       base: '#cbd5e1',
       tile: '#b6c4d4',
@@ -114,20 +194,201 @@ const MAP_CONFIGS: Record<MapId, MapThemeConfig> = {
     },
     outerGroundColor: 0x65a36c,
     obstacles: [
-      // Central helipad bunker
-      { x: 0, z: 0, w: 3.4, h: 1.8, d: 3.4, kind: 'bunker', color: '#4d7c0f' },
-      // Sandbag walls & tactical crates
-      { x: -7.5, z: -5.5, w: 4.4, h: 1.4, d: 1.4, kind: 'bunker', color: '#84cc16' },
-      { x: 7.5, z: 5.5, w: 4.4, h: 1.4, d: 1.4, kind: 'bunker', color: '#84cc16' },
-      { x: -7.5, z: 5.5, w: 2.4, h: 2.0, d: 2.4, kind: 'crate', color: '#3f6212' },
-      { x: 7.5, z: -5.5, w: 2.4, h: 2.0, d: 2.4, kind: 'crate', color: '#3f6212' },
-      { x: 0, z: -10.5, w: 4.6, h: 1.5, d: 1.3, kind: 'barrier' },
-      { x: 0, z: 10.5, w: 4.6, h: 1.5, d: 1.3, kind: 'barrier' },
-      { x: -12.5, z: 0, w: 2.0, h: 2.1, d: 4.2, kind: 'bunker', color: '#475569' },
-      { x: 12.5, z: 0, w: 2.0, h: 2.1, d: 4.2, kind: 'bunker', color: '#475569' },
+      // Central Helipad Command Bunker
+      { x: 0, z: 0, w: 4.4, h: 2.1, d: 4.4, kind: 'bunker', color: '#4d7c0f' },
+      { x: -10, z: -8, w: 5.5, h: 1.5, d: 1.6, kind: 'bunker', color: '#84cc16' },
+      { x: 10, z: 8, w: 5.5, h: 1.5, d: 1.6, kind: 'bunker', color: '#84cc16' },
+      { x: -10, z: 8, w: 5.5, h: 1.5, d: 1.6, kind: 'bunker', color: '#84cc16' },
+      { x: 10, z: -8, w: 5.5, h: 1.5, d: 1.6, kind: 'bunker', color: '#84cc16' },
+
+      // West & East Hangar Corridors (Nuke/Aztec style yard)
+      { x: -24, z: 0, w: 2.4, h: 2.8, d: 16, kind: 'bunker', color: '#475569' },
+      { x: 24, z: 0, w: 2.4, h: 2.8, d: 16, kind: 'bunker', color: '#475569' },
+      { x: -34, z: -12, w: 3.4, h: 2.1, d: 3.4, kind: 'crate', color: '#3f6212' },
+      { x: -34, z: 12, w: 3.4, h: 2.1, d: 3.4, kind: 'crate', color: '#3f6212' },
+      { x: 34, z: -12, w: 3.4, h: 2.1, d: 3.4, kind: 'crate', color: '#3f6212' },
+      { x: 34, z: 12, w: 3.4, h: 2.1, d: 3.4, kind: 'crate', color: '#3f6212' },
+
+      // North & South Tactical Trench Barriers
+      { x: 0, z: -22, w: 7.0, h: 1.6, d: 1.8, kind: 'barrier' },
+      { x: 0, z: 22, w: 7.0, h: 1.6, d: 1.8, kind: 'barrier' },
+      { x: -18, z: -24, w: 3.8, h: 2.0, d: 3.8, kind: 'crate', color: '#4d7c0f' },
+      { x: 18, z: -24, w: 3.8, h: 2.0, d: 3.8, kind: 'crate', color: '#4d7c0f' },
+      { x: -18, z: 24, w: 3.8, h: 2.0, d: 3.8, kind: 'crate', color: '#4d7c0f' },
+      { x: 18, z: 24, w: 3.8, h: 2.0, d: 3.8, kind: 'crate', color: '#4d7c0f' },
+
+      { x: -29, z: -29, w: 4.8, h: 1.8, d: 2.2, kind: 'bunker', color: '#64748b' },
+      { x: 29, z: 29, w: 4.8, h: 1.8, d: 2.2, kind: 'bunker', color: '#64748b' },
+      { x: -29, z: 29, w: 4.8, h: 1.8, d: 2.2, kind: 'bunker', color: '#64748b' },
+      { x: 29, z: -29, w: 4.8, h: 1.8, d: 2.2, kind: 'bunker', color: '#64748b' },
+    ],
+    hazards: [
+      { x: -6, z: -15, type: 'banana' },
+      { x: 6, z: 15, type: 'banana' },
+      { x: -18, z: 0, type: 'banana' },
+      { x: 18, z: 0, type: 'banana' },
+      { x: 0, z: -30, type: 'banana' },
+      { x: -14, z: 14, type: 'trampoline' },
+      { x: 14, z: -14, type: 'trampoline' },
+      { x: -30, z: 0, type: 'trampoline' },
+      { x: 30, z: 0, type: 'trampoline' },
+      { x: 0, z: 12, type: 'trampoline' },
+    ],
+    bonusSpawns: [
+      { x: 0, z: 11, type: 'heal' },
+      { x: 0, z: -11, type: 'damage' },
+      { x: -16, z: -12, type: 'speed' },
+      { x: 16, z: 12, type: 'shield' },
+      { x: -30, z: -18, type: 'heal' },
+      { x: 30, z: 18, type: 'damage' },
+      { x: -30, z: 18, type: 'shield' },
+      { x: 30, z: -18, type: 'speed' },
     ],
   },
 };
+
+function buildBananaHazard(
+  def: MapHazardDef,
+  id: number,
+  shadowTex: THREE.CanvasTexture,
+  disposables: Array<{ dispose: () => void }>
+): MapHazardInstance {
+  const grp = new THREE.Group();
+  grp.position.set(def.x, 0, def.z);
+  grp.rotation.y = id * 1.1;
+
+  const shadowMat = new THREE.MeshBasicMaterial({
+    map: shadowTex,
+    transparent: true,
+    depthWrite: false,
+    opacity: 0.35,
+  });
+  const shadowGeo = new THREE.PlaneGeometry(1.4, 1.4);
+  const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
+  shadowMesh.rotation.x = -Math.PI / 2;
+  shadowMesh.position.y = 0.015;
+  grp.add(shadowMesh);
+
+  const peelMat = new THREE.MeshStandardMaterial({
+    color: '#facc15',
+    roughness: 0.42,
+    metalness: 0.05,
+  });
+  const tipMat = new THREE.MeshStandardMaterial({
+    color: '#78350f',
+    roughness: 0.8,
+  });
+
+  const petalGeo = new THREE.BoxGeometry(0.24, 0.07, 0.56);
+  const tipGeo = new THREE.BoxGeometry(0.16, 0.07, 0.12);
+
+  for (let i = 0; i < 4; i++) {
+    const petalGroup = new THREE.Group();
+    petalGroup.rotation.y = (i * Math.PI) / 2 + 0.3;
+    const p = new THREE.Mesh(petalGeo, peelMat);
+    p.position.set(0, 0.06, 0.28);
+    p.rotation.x = 0.16;
+    p.castShadow = true;
+    const tip = new THREE.Mesh(tipGeo, tipMat);
+    tip.position.set(0, 0.03, 0.56);
+    petalGroup.add(p, tip);
+    grp.add(petalGroup);
+  }
+
+  const stemGeo = new THREE.CylinderGeometry(0.07, 0.11, 0.24, 8);
+  const stem = new THREE.Mesh(stemGeo, peelMat);
+  stem.position.y = 0.16;
+  const stemTip = new THREE.Mesh(tipGeo, tipMat);
+  stemTip.position.y = 0.28;
+  grp.add(stem, stemTip);
+
+  disposables.push(shadowMat, shadowGeo, peelMat, tipMat, petalGeo, tipGeo, stemGeo);
+
+  return {
+    id,
+    type: 'banana',
+    x: def.x,
+    z: def.z,
+    group: grp,
+    triggerAnim: 0,
+    cooldown: 0,
+  };
+}
+
+function buildTrampolineHazard(
+  def: MapHazardDef,
+  id: number,
+  tileColor: string,
+  lineColor: string,
+  disposables: Array<{ dispose: () => void }>
+): MapHazardInstance {
+  const grp = new THREE.Group();
+  grp.position.set(def.x, 0, def.z);
+
+  // Recessed floor pit base
+  const pitGeo = new THREE.BoxGeometry(2.35, 0.04, 2.35);
+  const pitMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.85 });
+  const pit = new THREE.Mesh(pitGeo, pitMat);
+  pit.position.y = 0.01;
+  grp.add(pit);
+
+  // Hidden coil spring beneath the disguised floor tile (pops into view on bounce!)
+  const springGeo = new THREE.CylinderGeometry(0.45, 0.52, 0.55, 10, 1, true);
+  const springMat = new THREE.MeshStandardMaterial({
+    color: '#fb923c',
+    emissive: 0xf97316,
+    emissiveIntensity: 0.35,
+    roughness: 0.35,
+    metalness: 0.6,
+    wireframe: true,
+  });
+  const springCoil = new THREE.Mesh(springGeo, springMat);
+  springCoil.position.y = 0.02;
+  springCoil.scale.y = 0.05;
+  grp.add(springCoil);
+
+  // Disguised tile plate matching floor color with subtle seam tell
+  const tileGeo = new THREE.BoxGeometry(2.2, 0.06, 2.2);
+  const tileMat = new THREE.MeshStandardMaterial({
+    color: tileColor,
+    roughness: 0.82,
+    metalness: 0.08,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  const tileTop = new THREE.Mesh(tileGeo, tileMat);
+  tileTop.position.y = 0.032;
+  tileTop.receiveShadow = true;
+
+  // Subtle corner seam border so observant players can spot the hidden spring tile
+  const seamGeo = new THREE.RingGeometry(0.75, 0.88, 4);
+  seamGeo.rotateX(-Math.PI / 2);
+  seamGeo.rotateY(Math.PI / 4);
+  const seamMat = new THREE.MeshBasicMaterial({
+    color: lineColor,
+    transparent: true,
+    opacity: 0.6,
+  });
+  const seam = new THREE.Mesh(seamGeo, seamMat);
+  seam.position.y = 0.036;
+  tileTop.add(seam);
+  grp.add(tileTop);
+
+  disposables.push(pitGeo, pitMat, springGeo, springMat, tileGeo, tileMat, seamGeo, seamMat);
+
+  return {
+    id,
+    type: 'trampoline',
+    x: def.x,
+    z: def.z,
+    group: grp,
+    tileTop,
+    springCoil,
+    triggerAnim: 0,
+    cooldown: 0,
+  };
+}
 
 function buildObstacleProp(
   obs: MapObstacle,
@@ -139,14 +400,13 @@ function buildObstacleProp(
   const grp = new THREE.Group();
   grp.position.set(obs.x, 0, obs.z);
 
-  // Soft contact shadow grounded right under the prop
   const shadowMat = new THREE.MeshBasicMaterial({
     map: shadowTex,
     transparent: true,
     depthWrite: false,
-    opacity: 0.45,
+    opacity: 0.42,
   });
-  const shadowGeo = new THREE.PlaneGeometry(obs.w * 1.35, obs.d * 1.35);
+  const shadowGeo = new THREE.PlaneGeometry(obs.w * 1.32, obs.d * 1.32);
   const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
   shadowMesh.rotation.x = -Math.PI / 2;
   shadowMesh.position.y = 0.02;
@@ -154,7 +414,6 @@ function buildObstacleProp(
   disposables.push(shadowMat, shadowGeo);
 
   if (obs.kind === 'crate') {
-    // 3-part stacked crate with corner braces & top cap
     const mat = new THREE.MeshStandardMaterial({
       map: crateTex,
       color: obs.color || '#d97706',
@@ -188,7 +447,6 @@ function buildObstacleProp(
 
     disposables.push(mat, trimMat, baseGeo, topGeo, bandGeo);
   } else if (obs.kind === 'barrier') {
-    // Jersey tactical barrier with hazard stripes + end bollards
     const concreteMat = new THREE.MeshStandardMaterial({
       color: '#e2e8f0',
       roughness: 0.85,
@@ -228,7 +486,6 @@ function buildObstacleProp(
 
     disposables.push(concreteMat, stripeMat, postMat, footGeo, wallGeo, coneGeo);
   } else if (obs.kind === 'pipe') {
-    // Stacked industrial pipes in cradle
     const pipeMat = new THREE.MeshStandardMaterial({
       color: obs.color || '#f59e0b',
       roughness: 0.42,
@@ -244,22 +501,21 @@ function buildObstacleProp(
     cradle.position.y = 0.12;
     grp.add(cradle);
 
-    const pipeGeo = new THREE.CylinderGeometry(0.42, 0.42, obs.d * 0.96, 14);
+    const pipeGeo = new THREE.CylinderGeometry(0.46, 0.46, obs.d * 0.96, 14);
     pipeGeo.rotateX(Math.PI / 2);
     const p1 = new THREE.Mesh(pipeGeo, pipeMat);
-    p1.position.set(-0.46, 0.62, 0);
+    p1.position.set(-0.52, 0.66, 0);
     p1.castShadow = true;
     const p2 = new THREE.Mesh(pipeGeo, pipeMat);
-    p2.position.set(0.46, 0.62, 0);
+    p2.position.set(0.52, 0.66, 0);
     p2.castShadow = true;
     const p3 = new THREE.Mesh(pipeGeo, pipeMat);
-    p3.position.set(0, 1.32, 0);
+    p3.position.set(0, 1.4, 0);
     p3.castShadow = true;
     grp.add(p1, p2, p3);
 
     disposables.push(pipeMat, cradleMat, cradleGeo, pipeGeo);
   } else if (obs.kind === 'awning') {
-    // Market stall: counter + 4 poles + pitched striped canopy + fruit basket
     const woodMat = new THREE.MeshStandardMaterial({ color: '#92400e', roughness: 0.82 });
     const canopyMat = new THREE.MeshStandardMaterial({
       color: obs.color || '#f43f5e',
@@ -301,7 +557,6 @@ function buildObstacleProp(
 
     disposables.push(woodMat, canopyMat, trimMat, counterGeo, poleGeo, roofGeo, valanceGeo);
   } else if (obs.kind === 'fountain') {
-    // Bazaar stone fountain with glowing turquoise water & central spout
     const stoneMat = new THREE.MeshStandardMaterial({ color: '#f5ebe0', roughness: 0.78 });
     const waterMat = new THREE.MeshPhysicalMaterial({
       color: '#38bdf8',
@@ -327,14 +582,13 @@ function buildObstacleProp(
     pillar.castShadow = true;
     grp.add(pillar);
 
-    const bowlGeo = new THREE.CylinderGeometry(0.85, 0.3, 0.35, 10);
+    const bowlGeo = new THREE.CylinderGeometry(0.95, 0.32, 0.35, 10);
     const bowl = new THREE.Mesh(bowlGeo, stoneMat);
     bowl.position.y = obs.h - 0.1;
     grp.add(bowl);
 
     disposables.push(stoneMat, waterMat, rimGeo, waterGeo, pillarGeo, bowlGeo);
   } else {
-    // Bunker / Wall
     const mainMat = new THREE.MeshStandardMaterial({
       color: obs.color || '#64748b',
       roughness: 0.85,
@@ -424,16 +678,17 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
   const cfg = MAP_CONFIGS[mapId];
   const group = new THREE.Group();
   const disposables: Array<{ dispose: () => void }> = [];
-  const arenaHalfSize = Math.round(18 * ARENA_SCALE);   // 29
-  const S = ARENA_SCALE;
+  // Full CS 1.6 tactical arena scale: 88 x 88 units!
+  const arenaHalfSize = 44;
 
   const groundTex = createGroundTexture(cfg.groundPalette, maxAnisotropy);
+  groundTex.repeat.set(36, 36);
   const crateTex = createCrateTexture('#ffffff', '#3f2305', maxAnisotropy);
   const hazardTex = createHazardStripeTexture('#facc15', '#1e293b', maxAnisotropy);
   const shadowTex = createContactShadowTexture();
   disposables.push(groundTex, crateTex, hazardTex, shadowTex);
 
-  // Extended outer ground (never floating in an empty void!)
+  // Extended outer ground (never floating in an empty void)
   const outerGeo = new THREE.PlaneGeometry(260, 260);
   const outerMat = new THREE.MeshStandardMaterial({
     color: cfg.outerGroundColor,
@@ -447,7 +702,7 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
   group.add(outerGround);
   disposables.push(outerGeo, outerMat);
 
-  // Playable arena floor
+  // Playable CS 1.6-sized arena floor
   const floorGeo = new THREE.PlaneGeometry(arenaHalfSize * 2, arenaHalfSize * 2);
   const floorMat = new THREE.MeshStandardMaterial({
     map: groundTex,
@@ -461,22 +716,22 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
   group.add(floor);
   disposables.push(floorGeo, floorMat);
 
-  // Cozy low perimeter curb / fence around playable bounds
+  // Perimeter curb around playable bounds
   const borderMat = new THREE.MeshStandardMaterial({
     color: mapId === 'canteiro' ? '#f59e0b' : mapId === 'mercado' ? '#e76f51' : '#64748b',
     roughness: 0.72,
     metalness: 0.1,
   });
-  const curbHorizGeo = new THREE.BoxGeometry(arenaHalfSize * 2 + 1.2, 0.75, 0.75);
-  const curbVertGeo = new THREE.BoxGeometry(0.75, 0.75, arenaHalfSize * 2 + 1.2);
+  const curbHorizGeo = new THREE.BoxGeometry(arenaHalfSize * 2 + 1.4, 1.0, 0.9);
+  const curbVertGeo = new THREE.BoxGeometry(0.9, 1.0, arenaHalfSize * 2 + 1.4);
   const north = new THREE.Mesh(curbHorizGeo, borderMat);
-  north.position.set(0, 0.375, -arenaHalfSize - 0.375);
+  north.position.set(0, 0.5, -arenaHalfSize - 0.45);
   const south = new THREE.Mesh(curbHorizGeo, borderMat);
-  south.position.set(0, 0.375, arenaHalfSize + 0.375);
+  south.position.set(0, 0.5, arenaHalfSize + 0.45);
   const west = new THREE.Mesh(curbVertGeo, borderMat);
-  west.position.set(-arenaHalfSize - 0.375, 0.375, 0);
+  west.position.set(-arenaHalfSize - 0.45, 0.5, 0);
   const east = new THREE.Mesh(curbVertGeo, borderMat);
-  east.position.set(arenaHalfSize + 0.375, 0.375, 0);
+  east.position.set(arenaHalfSize + 0.45, 0.5, 0);
   [north, south, west, east].forEach((m) => {
     m.receiveShadow = true;
     m.castShadow = true;
@@ -488,12 +743,7 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
   const colliders: ArenaCollider[] = [];
   const minimapWalls: Array<{ x: number; z: number; w: number; d: number }> = [];
 
-  const allObstacles: MapObstacle[] = [
-    ...cfg.obstacles.map((o) => ({ ...o, x: o.x * S, z: o.z * S })),
-    ...EXTRA_COVER,
-  ];
-
-  for (const obs of allObstacles) {
+  for (const obs of cfg.obstacles) {
     const prop = buildObstacleProp(obs, crateTex, hazardTex, shadowTex, disposables);
     group.add(prop);
     colliders.push({
@@ -506,23 +756,40 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
     minimapWalls.push({ x: obs.x, z: obs.z, w: obs.w, d: obs.d });
   }
 
-  // Natural perimeter scenery outside playable bounds (trees, hills, buildings)
+  // Interactive Hazards (Banana Peels & Hidden Floor-Tile Trampolines)
+  const hazards: MapHazardInstance[] = [];
+  cfg.hazards.forEach((hDef, idx) => {
+    const haz =
+      hDef.type === 'banana'
+        ? buildBananaHazard(hDef, idx, shadowTex, disposables)
+        : buildTrampolineHazard(
+          hDef,
+          idx,
+          cfg.groundPalette.tile,
+          cfg.groundPalette.line,
+          disposables
+        );
+    group.add(haz.group);
+    hazards.push(haz);
+  });
+
+  // Natural perimeter scenery outside playable bounds (trees, hills, landmarks)
   const hillMat = new THREE.MeshStandardMaterial({
     color: mapId === 'canteiro' ? '#d49a59' : mapId === 'mercado' ? '#e5b299' : '#4d7c0f',
     roughness: 0.92,
   });
-  const hillGeo = new THREE.ConeGeometry(7.5, 5.5, 7);
+  const hillGeo = new THREE.ConeGeometry(9.5, 7.5, 7);
   disposables.push(hillMat, hillGeo);
 
-  for (let i = 0; i < 18; i++) {
-    const angle = (i / 18) * Math.PI * 2;
-    const dist = arenaHalfSize + 6 + (i % 3) * 4.5;
+  for (let i = 0; i < 32; i++) {
+    const angle = (i / 32) * Math.PI * 2;
+    const dist = 53 + (i % 3) * 6.5;
     const px = Math.cos(angle) * dist;
     const pz = Math.sin(angle) * dist;
 
     if (i % 3 === 0) {
       const hill = new THREE.Mesh(hillGeo, hillMat);
-      hill.position.set(px, 2.2, pz);
+      hill.position.set(px, 3.0, pz);
       hill.rotation.y = i;
       group.add(hill);
     } else {
@@ -531,7 +798,7 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
       const tree = buildLowPolyTree(
         px,
         pz,
-        0.95 + (i % 4) * 0.16,
+        1.1 + (i % 4) * 0.2,
         leafColor,
         mapId === 'mercado',
         disposables
@@ -540,30 +807,25 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
     }
   }
 
-  // Map-specific landmark outside perimeter
   if (mapId === 'canteiro') {
-    // Cozy yellow crane silhouette on the far north-west edge
     const craneMat = new THREE.MeshStandardMaterial({ color: '#eab308', roughness: 0.45 });
-    const towerGeo = new THREE.BoxGeometry(1.4, 14, 1.4);
-    const armGeo = new THREE.BoxGeometry(12, 1.0, 1.0);
+    const towerGeo = new THREE.BoxGeometry(1.8, 22, 1.8);
+    const armGeo = new THREE.BoxGeometry(18, 1.2, 1.2);
     const tower = new THREE.Mesh(towerGeo, craneMat);
-    tower.position.set(-(arenaHalfSize + 5), 7, -(arenaHalfSize + 5));
-
-
+    tower.position.set(-50, 11, -50);
     const arm = new THREE.Mesh(armGeo, craneMat);
-    arm.position.set(-(arenaHalfSize - 1), 13.5, -(arenaHalfSize + 5));
+    arm.position.set(-42, 21.5, -50);
     arm.rotation.y = 0.4;
     group.add(tower, arm);
     disposables.push(craneMat, towerGeo, armGeo);
   } else if (mapId === 'base') {
-    // Helipad ring on the floor + radar tower outside
     const padMat = new THREE.MeshBasicMaterial({
       color: '#fef08a',
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
     });
-    const ringGeo = new THREE.RingGeometry(4.2, 4.7, 24);
+    const ringGeo = new THREE.RingGeometry(6.0, 6.6, 28);
     const ring = new THREE.Mesh(ringGeo, padMat);
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(0, 0.01, 0);
@@ -571,34 +833,70 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
     disposables.push(padMat, ringGeo);
   }
 
+  // Well-spaced spawn points across the CS 1.6-sized arena (safe from colliders!)
+  const blueSpawns = [
+    new THREE.Vector3(-22, 0, -37),
+    new THREE.Vector3(0, 0, -38),
+    new THREE.Vector3(22, 0, -37),
+    new THREE.Vector3(-36, 0, -34),
+    new THREE.Vector3(36, 0, -34),
+    new THREE.Vector3(-10, 0, -37),
+    new THREE.Vector3(10, 0, -37),
+  ];
+
+  const orangeSpawns = [
+    new THREE.Vector3(-22, 0, 37),
+    new THREE.Vector3(0, 0, 38),
+    new THREE.Vector3(22, 0, 37),
+    new THREE.Vector3(-36, 0, 34),
+    new THREE.Vector3(36, 0, 34),
+    new THREE.Vector3(-10, 0, 37),
+    new THREE.Vector3(10, 0, 37),
+  ];
+
+  const ffaSpawns = [
+    ...blueSpawns,
+    ...orangeSpawns,
+    new THREE.Vector3(-38, 0, 0),
+    new THREE.Vector3(38, 0, 0),
+    new THREE.Vector3(-26, 0, 14),
+    new THREE.Vector3(26, 0, -14),
+  ];
+
+  // Tactical navigation waypoints in open lanes for smart Bot AI pathing
+  const waypoints = [
+    new THREE.Vector3(0, 0, 14),
+    new THREE.Vector3(0, 0, -14),
+    new THREE.Vector3(-12, 0, 0),
+    new THREE.Vector3(12, 0, 0),
+    new THREE.Vector3(-26, 0, -14),
+    new THREE.Vector3(26, 0, -14),
+    new THREE.Vector3(-26, 0, 14),
+    new THREE.Vector3(26, 0, 14),
+    new THREE.Vector3(-36, 0, 0),
+    new THREE.Vector3(36, 0, 0),
+    new THREE.Vector3(0, 0, -34),
+    new THREE.Vector3(0, 0, 34),
+    new THREE.Vector3(-28, 0, -34),
+    new THREE.Vector3(28, 0, -34),
+    new THREE.Vector3(-28, 0, 34),
+    new THREE.Vector3(28, 0, 34),
+  ];
+
   return {
     group,
     colliders,
+    hazards,
+    bonusSpawns: cfg.bonusSpawns,
     arenaHalfSize,
     skyColor: cfg.skyColor,
     fogDensity: cfg.fogDensity,
     spawnPoints: {
-      blue: [
-        new THREE.Vector3(-14.5 * S, 0, -14.5 * S),
-        new THREE.Vector3(-14.5, 0, 0),
-        new THREE.Vector3(-12.5, 0, -14.5),
-        new THREE.Vector3(-14.5, 0, 12.5),
-      ],
-      orange: [
-        new THREE.Vector3(14.5, 0, 14.5),
-        new THREE.Vector3(14.5, 0, 0),
-        new THREE.Vector3(12.5, 0, 14.5),
-        new THREE.Vector3(14.5, 0, -12.5),
-      ],
-      ffa: [
-        new THREE.Vector3(-14.5 * S, 0, -14.5 * S),
-        new THREE.Vector3(14.5, 0, 14.5),
-        new THREE.Vector3(-14.5, 0, 14.5),
-        new THREE.Vector3(14.5, 0, -14.5),
-        new THREE.Vector3(-4.5, 0, -14.5),
-        new THREE.Vector3(4.5, 0, 14.5),
-      ],
+      blue: blueSpawns,
+      orange: orangeSpawns,
+      ffa: ffaSpawns,
     },
+    waypoints,
     minimapWalls,
     disposables,
   };

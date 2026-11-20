@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Crosshair, RotateCw, ArrowUp } from 'lucide-react';
-import { HudSnapshot, WEAPONS, WeaponSlot } from '../game/types';
+import { Crosshair, RotateCw, ArrowUp, ThumbsUp, Smile } from 'lucide-react';
+import { EMOTES, EmoteId, HudSnapshot, WEAPONS, WeaponSlot } from '../game/types';
 
 interface MobileControlsProps {
   visible: boolean;
@@ -11,6 +11,7 @@ interface MobileControlsProps {
   onJump: () => void;
   onSwitchWeapon: (slot: WeaponSlot) => void;
   onReload: () => void;
+  onTriggerEmote: (emote: EmoteId) => void;
 }
 
 export const MobileControls: React.FC<MobileControlsProps> = ({
@@ -22,6 +23,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   onJump,
   onSwitchWeapon,
   onReload,
+  onTriggerEmote,
 }) => {
   const [isPortrait, setIsPortrait] = useState(false);
   const [joyOffset, setJoyOffset] = useState({ x: 0, y: 0 });
@@ -151,6 +153,8 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
         >
           {([1, 2, 3] as WeaponSlot[]).map((slot) => {
             const active = hud.weaponSlot === slot;
+            const maxAmmo =
+              WEAPONS[slot].magSize + (slot === 3 ? hud.selectedCharacter.stats.extraGrenade : 0);
             return (
               <button
                 key={slot}
@@ -159,15 +163,14 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
                   e.stopPropagation();
                   onSwitchWeapon(slot);
                 }}
-                className={`flex h-11 min-w-[44px] flex-col items-center justify-center rounded-xl border px-2 font-mono-num text-xs font-bold active:scale-90 active:opacity-80 transition-transform ${
-                  active
+                className={`flex h-11 min-w-[44px] flex-col items-center justify-center rounded-xl border px-2 font-mono-num text-xs font-bold active:scale-90 active:opacity-80 transition-transform ${active
                     ? 'border-[#facc15] bg-[#facc15] text-[#1e1b2e]'
                     : 'border-white/20 bg-[#1e1b2e]/85 text-[#fff8f0]'
-                }`}
+                  }`}
               >
                 <span>{slot}</span>
                 <span className="text-[9px] leading-none">
-                  {hud.ammo[slot]}/{WEAPONS[slot].magSize}
+                  {hud.ammo[slot]}/{maxAmmo}
                 </span>
               </button>
             );
@@ -203,6 +206,53 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
               transform: `translate(${joyOffset.x}px, ${joyOffset.y}px)`,
             }}
           />
+        </div>
+
+        {/* Emote Row (min 44x44px, clear of drag-aim and fire button) */}
+        <div
+          className="fixed flex items-center gap-1.5 pointer-events-auto"
+          style={{
+            right: 'calc(max(16px, env(safe-area-inset-right)) + 58px)',
+            top: 'calc(max(12px, env(safe-area-inset-top)) + 56px)',
+          }}
+        >
+          {EMOTES.map((em) => {
+            const isActive = hud.activeEmote === em.id;
+            const disabled = hud.emoteCooldown > 0;
+            return (
+              <button
+                key={em.id}
+                type="button"
+                disabled={disabled}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  if (!disabled) onTriggerEmote(em.id);
+                }}
+                aria-label={`Emote ${em.label}`}
+                className={`flex h-11 min-w-[44px] items-center justify-center rounded-xl border px-2 font-bold active:scale-90 active:opacity-80 transition-transform ${isActive
+                    ? 'border-[#facc15] bg-[#facc15] text-[#1e1b2e]'
+                    : disabled
+                      ? 'border-white/10 bg-[#1e1b2e]/50 text-[#94a3b8]/60'
+                      : 'border-white/20 bg-[#1e1b2e]/85 text-[#fff8f0]'
+                  }`}
+              >
+                {em.id === 'thumbs-up' && <ThumbsUp className="h-4 w-4" />}
+                {em.id === 'cueca' && (
+                  <svg width="18" height="15" viewBox="0 0 112 92" aria-hidden="true">
+                    <path
+                      d="M12 16 H100 L94 42 C82 46 72 58 68 78 H44 C40 58 30 46 18 42 Z"
+                      fill={isActive ? '#1e1b2e' : '#f43f5e'}
+                      stroke={isActive ? '#1e1b2e' : '#fff8f0'}
+                      strokeWidth="8"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+                {em.id === 'gg' && <span className="font-display text-xs">GG</span>}
+                {em.id === 'laugh' && <Smile className="h-4 w-4" />}
+              </button>
+            );
+          })}
         </div>
 
         {/* Jump Button (Top-Right below Pause/Mute) */}

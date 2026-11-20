@@ -1,3 +1,5 @@
+import { EmoteId } from './types';
+
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -366,6 +368,127 @@ class SoundEngine {
     osc.start(now);
     osc.stop(now + 0.31);
     this.playFilteredNoise(0.24, 1800, 0.2);
+  }
+
+  public playSlip(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain || this.muted) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(760, now);
+    osc.frequency.exponentialRampToValueAtTime(220, now + 0.16);
+    osc.frequency.exponentialRampToValueAtTime(520, now + 0.26);
+    osc.frequency.exponentialRampToValueAtTime(160, now + 0.42);
+    gain.gain.setValueAtTime(0.26, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.44);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.45);
+  }
+
+  public playTrampoline(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain || this.muted) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(160, now);
+    osc.frequency.exponentialRampToValueAtTime(640, now + 0.22);
+    lfo.frequency.setValueAtTime(30, now);
+    lfoGain.gain.setValueAtTime(35, now);
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    gain.gain.setValueAtTime(0.32, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    lfo.start(now);
+    osc.start(now);
+    lfo.stop(now + 0.31);
+    osc.stop(now + 0.31);
+  }
+
+  public playPickup(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain || this.muted) return;
+    const now = ctx.currentTime;
+    [587.33, 880].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.065);
+      gain.gain.setValueAtTime(0.22, now + i * 0.065);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.065 + 0.16);
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+      osc.start(now + i * 0.065);
+      osc.stop(now + i * 0.065 + 0.17);
+    });
+  }
+
+  public playKillCam(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain || this.muted) return;
+    const now = ctx.currentTime;
+
+    // Dramatic sub-bass drop + minor synth stinger
+    const sub = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(145, now);
+    sub.frequency.exponentialRampToValueAtTime(42, now + 0.45);
+    subGain.gain.setValueAtTime(0.38, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    sub.connect(subGain);
+    subGain.connect(this.masterGain);
+    sub.start(now);
+    sub.stop(now + 0.52);
+
+    // Two-note dramatic camera-cut chime
+    [392.0, 311.13].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, now + i * 0.14);
+      gain.gain.setValueAtTime(0.18, now + i * 0.14);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.14 + 0.34);
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+      osc.start(now + i * 0.14);
+      osc.stop(now + i * 0.14 + 0.35);
+    });
+  }
+
+  public playEmote(emote: EmoteId): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain || this.muted) return;
+    const now = ctx.currentTime;
+
+    const patternMap: Record<EmoteId, number[]> = {
+      'thumbs-up': [523.25, 783.99],
+      cueca: [440, 554.37, 659.25],
+      gg: [587.33, 739.99, 880],
+      laugh: [480, 620, 480, 620],
+    };
+    const notes = patternMap[emote];
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = emote === 'laugh' ? 'sine' : 'triangle';
+      osc.frequency.setValueAtTime(freq, now + i * 0.075);
+      gain.gain.setValueAtTime(0.18, now + i * 0.075);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.075 + 0.13);
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+      osc.start(now + i * 0.075);
+      osc.stop(now + i * 0.075 + 0.14);
+    });
   }
 }
 
