@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Volume2, VolumeX, Play, Shield, Flame, Trophy, Lock, Check } from 'lucide-react';
+import { Volume2, VolumeX, Play, Shield, Flame, Trophy, Lock, Check, Maximize2, Minimize2 } from 'lucide-react';
 import { EXCLUSIVE_CUECAS } from '../game/dailyChallenges';
 import {
   CHARACTERS,
@@ -18,6 +18,8 @@ interface TitleScreenProps {
   characterId: CharacterId;
   difficulty: Difficulty;
   muted: boolean;
+  canFullscreen: boolean;
+  isFullscreen: boolean;
   currentTier: CuecaTier;
   nextTier: CuecaTier | null;
   careerScore: number;
@@ -30,6 +32,7 @@ interface TitleScreenProps {
   onSelectDifficulty: (diff: Difficulty) => void;
   onEquipCueca: (cuecaId: string | null) => void;
   onToggleMute: () => void;
+  onToggleFullscreen: () => void;
   onStart: () => void;
 }
 
@@ -51,6 +54,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   characterId,
   difficulty,
   muted,
+  canFullscreen,
+  isFullscreen,
   currentTier,
   nextTier,
   careerScore,
@@ -63,6 +68,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onSelectDifficulty,
   onEquipCueca,
   onToggleMute,
+  onToggleFullscreen,
   onStart,
 }) => {
   const initialFaction =
@@ -108,8 +114,18 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
   return (
     <div className="fixed inset-0 z-20 flex flex-col justify-between p-3 sm:p-6 pointer-events-none overflow-y-auto">
-      {/* Top right audio toggle */}
-      <div className="flex items-start justify-end">
+      {/* Top right audio & fullscreen toggles */}
+      <div className="flex items-start justify-end gap-2">
+        {canFullscreen && (
+          <button
+            type="button"
+            onClick={onToggleFullscreen}
+            aria-label={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+            className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-xl bg-[#1e1b2e]/92 border border-white/15 text-[#fff8f0] hover:bg-[#2b2640] active:scale-95 transition-transform"
+          >
+            {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+          </button>
+        )}
         <button
           type="button"
           onClick={onToggleMute}

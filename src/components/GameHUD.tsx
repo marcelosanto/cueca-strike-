@@ -1,12 +1,15 @@
 import React from 'react';
-import { Pause, Volume2, VolumeX, Zap, Flame, ShieldCheck, Trophy, Check, Video, SkipForward, ThumbsUp, Smile } from 'lucide-react';
+import { Pause, Volume2, VolumeX, Zap, Flame, ShieldCheck, Trophy, Check, Video, SkipForward, ThumbsUp, Smile, Maximize2, Minimize2 } from 'lucide-react';
 import { EMOTES, EmoteId, HudSnapshot, WEAPONS, WeaponSlot } from '../game/types';
 
 interface GameHUDProps {
   hud: HudSnapshot;
   muted: boolean;
   isTouchDevice: boolean;
+  canFullscreen: boolean;
+  isFullscreen: boolean;
   onToggleMute: () => void;
+  onToggleFullscreen: () => void;
   onPause: () => void;
   onSwitchWeapon: (slot: WeaponSlot) => void;
   onReload: () => void;
@@ -24,7 +27,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   hud,
   muted,
   isTouchDevice,
+  canFullscreen,
+  isFullscreen,
   onToggleMute,
+  onToggleFullscreen,
   onPause,
   onSwitchWeapon,
   onReload,
@@ -219,6 +225,16 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         {/* Right: Utility Buttons + Flying Cueca Killfeed */}
         <div className="flex flex-col items-end gap-2">
           <div className="flex items-center gap-1.5 pointer-events-auto">
+            {canFullscreen && (
+              <button
+                type="button"
+                onClick={onToggleFullscreen}
+                aria-label={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+                className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#1e1b2e]/90 border border-white/15 text-[#fff8f0] active:scale-95 transition-transform"
+              >
+                {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
+            )}
             <button
               type="button"
               onClick={onToggleMute}

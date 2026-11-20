@@ -8,6 +8,12 @@ import { TitleScreen } from './components/TitleScreen';
 import { soundEngine } from './game/audio';
 import { CuecaGameEngine } from './game/engine';
 import {
+  isFullscreenActive,
+  requestMobileFullscreen,
+  supportsFullscreen,
+  toggleMobileFullscreen,
+} from './utils/fullscreen';
+import {
   CHARACTERS,
   CharacterId,
   CUECA_TIERS,
@@ -106,6 +112,21 @@ export default function App() {
   const [muted, setMuted] = useState(false);
   const [hud, setHud] = useState<HudSnapshot>(INITIAL_HUD);
   const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const canFullscreen = supportsFullscreen();
+
+  useEffect(() => {
+    const syncFullscreen = () => {
+      setIsFullscreen(isFullscreenActive());
+    };
+    syncFullscreen();
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('webkitfullscreenchange', syncFullscreen);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreen);
+    };
+  }, []);
 
   useEffect(() => {
     const checkTouch = () => {
@@ -174,9 +195,16 @@ export default function App() {
     [selectedMap, selectedMode, selectedCharacter]
   );
 
+  const handleToggleFullscreen = useCallback(() => {
+    void toggleMobileFullscreen();
+  }, []);
+
   const handleStart = useCallback(() => {
+    if (isTouchDevice) {
+      void requestMobileFullscreen();
+    }
     engineRef.current?.startMatch(selectedMap, selectedMode, selectedCharacter, difficulty);
-  }, [selectedMap, selectedMode, selectedCharacter, difficulty]);
+  }, [isTouchDevice, selectedMap, selectedMode, selectedCharacter, difficulty]);
 
   const handleEquipCueca = useCallback((cuecaId: string | null) => {
     engineRef.current?.equipExclusiveCueca(cuecaId);
@@ -191,7 +219,12 @@ export default function App() {
   }, []);
 
   const handlePause = useCallback(() => engineRef.current?.pauseGame(), []);
-  const handleResume = useCallback(() => engineRef.current?.resumeGame(), []);
+  const handleResume = useCallback(() => {
+    if (isTouchDevice) {
+      void requestMobileFullscreen();
+    }
+    engineRef.current?.resumeGame();
+  }, [isTouchDevice]);
   const handleMainMenu = useCallback(() => engineRef.current?.returnToTitle(), []);
   const handleSwitchWeapon = useCallback(
     (slot: WeaponSlot) => engineRef.current?.switchWeapon(slot),
@@ -235,6 +268,8 @@ export default function App() {
           characterId={selectedCharacter}
           difficulty={difficulty}
           muted={muted}
+          canFullscreen={canFullscreen}
+          isFullscreen={isFullscreen}
           currentTier={hud.cuecaTier}
           nextTier={hud.nextCuecaTier}
           careerScore={hud.careerScore}
@@ -247,6 +282,7 @@ export default function App() {
           onSelectDifficulty={handleSelectDifficulty}
           onEquipCueca={handleEquipCueca}
           onToggleMute={handleToggleMute}
+          onToggleFullscreen={handleToggleFullscreen}
           onStart={handleStart}
         />
       )}
@@ -257,7 +293,10 @@ export default function App() {
             hud={hud}
             muted={muted}
             isTouchDevice={isTouchDevice}
+            canFullscreen={canFullscreen}
+            isFullscreen={isFullscreen}
             onToggleMute={handleToggleMute}
+            onToggleFullscreen={handleToggleFullscreen}
             onPause={handlePause}
             onSwitchWeapon={handleSwitchWeapon}
             onReload={handleReload}
@@ -274,6 +313,8 @@ export default function App() {
           <MobileControls
             visible={isTouchDevice && hud.phase === 'playing' && hud.playerAlive}
             hud={hud}
+            canFullscreen={canFullscreen}
+            isFullscreen={isFullscreen}
             onMove={handleMobileMove}
             onAim={handleMobileAim}
             onFire={handleMobileFire}
@@ -281,6 +322,7 @@ export default function App() {
             onSwitchWeapon={handleSwitchWeapon}
             onReload={handleReload}
             onTriggerEmote={handleTriggerEmote}
+            onToggleFullscreen={handleToggleFullscreen}
           />
 
           <MatchModal

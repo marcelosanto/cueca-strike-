@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Crosshair, RotateCw, ArrowUp, ThumbsUp, Smile } from 'lucide-react';
+import { Crosshair, RotateCw, ArrowUp, ThumbsUp, Smile, Maximize2 } from 'lucide-react';
 import { EMOTES, EmoteId, HudSnapshot, WEAPONS, WeaponSlot } from '../game/types';
 
 interface MobileControlsProps {
   visible: boolean;
   hud: HudSnapshot;
+  canFullscreen: boolean;
+  isFullscreen: boolean;
   onMove: (x: number, y: number) => void;
   onAim: (dx: number, dy: number) => void;
   onFire: (held: boolean) => void;
@@ -12,11 +14,14 @@ interface MobileControlsProps {
   onSwitchWeapon: (slot: WeaponSlot) => void;
   onReload: () => void;
   onTriggerEmote: (emote: EmoteId) => void;
+  onToggleFullscreen: () => void;
 }
 
 export const MobileControls: React.FC<MobileControlsProps> = ({
   visible,
   hud,
+  canFullscreen,
+  isFullscreen,
   onMove,
   onAim,
   onFire,
@@ -24,6 +29,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   onSwitchWeapon,
   onReload,
   onTriggerEmote,
+  onToggleFullscreen,
 }) => {
   const [isPortrait, setIsPortrait] = useState(false);
   const [joyOffset, setJoyOffset] = useState({ x: 0, y: 0 });
@@ -31,7 +37,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   const joyCenter = useRef({ x: 0, y: 0 });
 
   const aimPointerId = useRef<number | null>(null);
-  const aimAnchor = useRef({ x: 0, y: 0 });
+  const aimLast = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     const check = () => {
@@ -90,14 +96,15 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
     aimPointerId.current = e.pointerId;
-    aimAnchor.current = { x: e.clientX, y: e.clientY };
+    aimLast.current = { x: e.clientX, y: e.clientY };
   };
 
   const handleAimMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (aimPointerId.current !== e.pointerId) return;
-    const dx = e.clientX - aimAnchor.current.x;
-    const dy = e.clientY - aimAnchor.current.y;
-    if (Math.hypot(dx, dy) > 8) {
+    const dx = e.clientX - aimLast.current.x;
+    const dy = e.clientY - aimLast.current.y;
+    aimLast.current = { x: e.clientX, y: e.clientY };
+    if (Math.abs(dx) > 0.25 || Math.abs(dy) > 0.25) {
       onAim(dx, -dy);
     }
   };
@@ -120,12 +127,22 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
           <p className="mt-2 max-w-xs text-sm text-[#cbd5e1]">
             Cueca Strike roda em modo paisagem para você mirar e desviar das cuecas com folga!
           </p>
+          {canFullscreen && !isFullscreen && (
+            <button
+              type="button"
+              onClick={onToggleFullscreen}
+              className="mt-5 flex min-h-[44px] items-center gap-2 rounded-xl bg-[#facc15] px-5 py-2.5 font-display text-sm font-bold text-[#1e1b2e] active:scale-95 transition-transform"
+            >
+              <Maximize2 className="h-4 w-4" />
+              Tela Cheia (Paisagem)
+            </button>
+          )}
         </div>
       )}
 
       {/* Landscape Touch Overlay */}
       <div
-        className="fixed inset-0 z-20 pointer-events-none"
+        className="fixed inset-0 z-20 pointer-events-none touch-none"
         style={{
           paddingBottom: 'max(14px, env(safe-area-inset-bottom))',
           paddingLeft: 'max(14px, env(safe-area-inset-left))',
@@ -139,7 +156,7 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
           onPointerMove={handleAimMove}
           onPointerUp={handleAimUp}
           onPointerCancel={handleAimUp}
-          className="fixed right-0 top-14 bottom-0 w-1/2 pointer-events-auto"
+          className="fixed right-0 top-14 bottom-0 w-1/2 pointer-events-auto touch-none"
           aria-label="Área de mira"
         />
 

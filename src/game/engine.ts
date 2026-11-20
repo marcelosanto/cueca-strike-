@@ -290,7 +290,8 @@ export class CuecaGameEngine {
   private hasPointerMoved = false;
   private mouseAimWorld = new THREE.Vector3(0, 1.25, 0);
   private mobileMoveVec = new THREE.Vector2(0, 0);
-  private mobileAimVec = new THREE.Vector2(0, 1);
+  private mobileAimDeltaX = 0;
+  private mobileAimDist = 8.0;
   private usingMobileAim = false;
 
   // Behind-the-player chase camera heading (yaw camera looks toward)
@@ -480,6 +481,10 @@ export class CuecaGameEngine {
 
   private bindEvents(): void {
     window.addEventListener('resize', this.handleResize);
+    window.addEventListener('orientationchange', this.handleResize);
+    document.addEventListener('fullscreenchange', this.handleResize);
+    document.addEventListener('webkitfullscreenchange', this.handleResize);
+    window.visualViewport?.addEventListener('resize', this.handleResize);
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
     window.addEventListener('blur', this.handleBlur);
@@ -493,6 +498,10 @@ export class CuecaGameEngine {
 
   private unbindEvents(): void {
     window.removeEventListener('resize', this.handleResize);
+    window.removeEventListener('orientationchange', this.handleResize);
+    document.removeEventListener('fullscreenchange', this.handleResize);
+    document.removeEventListener('webkitfullscreenchange', this.handleResize);
+    window.visualViewport?.removeEventListener('resize', this.handleResize);
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
     window.removeEventListener('blur', this.handleBlur);
@@ -762,18 +771,19 @@ export class CuecaGameEngine {
   }
 
   public setMobileMove(x: number, y: number): void {
+    this.usingMobileAim = true;
     this.mobileMoveVec.set(x, y);
   }
 
   public setMobileAim(dx: number, dy: number): void {
-    if (Math.hypot(dx, dy) > 0.08) {
-      this.usingMobileAim = true;
-      this.mobileAimVec.set(dx, dy).normalize();
-    }
+    this.usingMobileAim = true;
+    this.mobileAimDeltaX += THREE.MathUtils.clamp(dx, -90, 90);
+    this.mobileAimDist = THREE.MathUtils.clamp(this.mobileAimDist + dy * 0.035, 4.5, 13.5);
   }
 
   public setMobileFire(held: boolean): void {
     soundEngine.unlock();
+    this.usingMobileAim = true;
     const p = this.getPlayer();
     if (!p || !p.alive || p.hp <= 0 || this.phase !== 'playing') {
       this.mobileFireHeld = false;
@@ -1013,6 +1023,7 @@ export class CuecaGameEngine {
       this.cameraYaw = Math.PI;
       p.yaw = Math.PI;
     }
+    this.mobileAimDeltaX = 0;
     this.cameraInitSnap = true;
   }
 
@@ -1449,16 +1460,11 @@ export class CuecaGameEngine {
     }
 
     if (this.usingMobileAim) {
-      _v2.set(0, 0, 0)
-        .addScaledVector(_camRight, this.mobileAimVec.x)
-        .addScaledVector(_camForward, this.mobileAimVec.y);
-      p.yaw = Math.atan2(_v2.x, _v2.z);
-
-      let diff = p.yaw - this.cameraYaw;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      const chaseRate = this.mobileFireHeld ? 1.8 : 3.4;
-      this.cameraYaw += diff * Math.min(1, dt * chaseRate);
+      if (Math.abs(this.mobileAimDeltaX) > 0.001) {
+        this.cameraYaw -= this.mobileAimDeltaX * 0.0075;
+        this.mobileAimDeltaX = 0;
+      }
+      p.yaw = this.cameraYaw;
     } else {
       this.refreshMouseAimWorld();
       if (this.hasPointerMoved) {
@@ -1482,16 +1488,7 @@ export class CuecaGameEngine {
           this.cameraYaw += turnDir * Math.min(Math.abs(diff), 2.5 * dt);
         }
       } else if (_v1.lengthSq() > 0.04) {
-        const moveYaw = Math.atan2(_v1.x, _v1.z);
-        let pDiff = moveYaw - p.yaw;
-        while (pDiff > Math.PI) pDiff -= Math.PI * 2;
-        while (pDiff < -Math.PI) pDiff += Math.PI * 2;
-        p.yaw += pDiff * Math.min(1, dt * 10);
-
-        let cDiff = p.yaw - this.cameraYaw;
-        while (cDiff > Math.PI) cDiff -= Math.PI * 2;
-        while (cDiff < -Math.PI) cDiff += Math.PI * 2;
-        this.cameraYaw += cDiff * Math.min(1, dt * 3.0);
+        p.yaw = this.cameraYaw;
       }
     }
 
@@ -2952,8 +2949,9 @@ export class CuecaGameEngine {
       tx = this.mouseAimWorld.x;
       tz = this.mouseAimWorld.z;
     } else {
-      tx = p.pos.x + Math.sin(p.yaw) * 7.5;
-      tz = p.pos.z + Math.cos(p.yaw) * 7.5;
+      const dist = this.usingMobileAim ? this.mobileAimDist : 7.5;
+      tx = p.pos.x + Math.sin(p.yaw) * dist;
+      tz = p.pos.z + Math.cos(p.yaw) * dist;
     }
 
     this.aimRingMesh.position.set(tx, 0.08, tz);
