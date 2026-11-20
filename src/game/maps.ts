@@ -38,6 +38,18 @@ interface MapThemeConfig {
   obstacles: MapObstacle[];
 }
 
+const ARENA_SCALE = 1.6;
+
+const EXTRA_COVER: MapObstacle[] = [];
+for (const sx of [-1, 1]) {
+  for (const sz of [-1, 1]) {
+    EXTRA_COVER.push({ x: sx * 19, z: sz * 11, w: 4.0, h: 1.5, d: 1.3, kind: 'barrier' });
+    EXTRA_COVER.push({ x: sx * 10, z: sz * 21, w: 1.6, h: 2.0, d: 3.6, kind: 'crate', color: '#d97706' });
+    EXTRA_COVER.push({ x: sx * 25, z: sz * 6, w: 2.2, h: 1.8, d: 2.2, kind: 'crate', color: '#b45309' });
+    EXTRA_COVER.push({ x: sx * 5, z: sz * 14, w: 2.6, h: 1.5, d: 1.3, kind: 'barrier' });
+  }
+}
+
 const MAP_CONFIGS: Record<MapId, MapThemeConfig> = {
   canteiro: {
     skyColor: 0xffe8c8,
@@ -412,7 +424,8 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
   const cfg = MAP_CONFIGS[mapId];
   const group = new THREE.Group();
   const disposables: Array<{ dispose: () => void }> = [];
-  const arenaHalfSize = 18;
+  const arenaHalfSize = Math.round(18 * ARENA_SCALE);   // 29
+  const S = ARENA_SCALE;
 
   const groundTex = createGroundTexture(cfg.groundPalette, maxAnisotropy);
   const crateTex = createCrateTexture('#ffffff', '#3f2305', maxAnisotropy);
@@ -421,7 +434,7 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
   disposables.push(groundTex, crateTex, hazardTex, shadowTex);
 
   // Extended outer ground (never floating in an empty void!)
-  const outerGeo = new THREE.PlaneGeometry(160, 160);
+  const outerGeo = new THREE.PlaneGeometry(260, 260);
   const outerMat = new THREE.MeshStandardMaterial({
     color: cfg.outerGroundColor,
     roughness: 0.95,
@@ -475,7 +488,12 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
   const colliders: ArenaCollider[] = [];
   const minimapWalls: Array<{ x: number; z: number; w: number; d: number }> = [];
 
-  for (const obs of cfg.obstacles) {
+  const allObstacles: MapObstacle[] = [
+    ...cfg.obstacles.map((o) => ({ ...o, x: o.x * S, z: o.z * S })),
+    ...EXTRA_COVER,
+  ];
+
+  for (const obs of allObstacles) {
     const prop = buildObstacleProp(obs, crateTex, hazardTex, shadowTex, disposables);
     group.add(prop);
     colliders.push({
@@ -498,7 +516,7 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
 
   for (let i = 0; i < 18; i++) {
     const angle = (i / 18) * Math.PI * 2;
-    const dist = 24 + (i % 3) * 4.5;
+    const dist = arenaHalfSize + 6 + (i % 3) * 4.5;
     const px = Math.cos(angle) * dist;
     const pz = Math.sin(angle) * dist;
 
@@ -529,9 +547,11 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
     const towerGeo = new THREE.BoxGeometry(1.4, 14, 1.4);
     const armGeo = new THREE.BoxGeometry(12, 1.0, 1.0);
     const tower = new THREE.Mesh(towerGeo, craneMat);
-    tower.position.set(-23, 7, -23);
+    tower.position.set(-(arenaHalfSize + 5), 7, -(arenaHalfSize + 5));
+
+
     const arm = new THREE.Mesh(armGeo, craneMat);
-    arm.position.set(-18, 13.5, -23);
+    arm.position.set(-(arenaHalfSize - 1), 13.5, -(arenaHalfSize + 5));
     arm.rotation.y = 0.4;
     group.add(tower, arm);
     disposables.push(craneMat, towerGeo, armGeo);
@@ -559,7 +579,7 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
     fogDensity: cfg.fogDensity,
     spawnPoints: {
       blue: [
-        new THREE.Vector3(-14.5, 0, -14.5),
+        new THREE.Vector3(-14.5 * S, 0, -14.5 * S),
         new THREE.Vector3(-14.5, 0, 0),
         new THREE.Vector3(-12.5, 0, -14.5),
         new THREE.Vector3(-14.5, 0, 12.5),
@@ -571,7 +591,7 @@ export function buildMapScene(mapId: MapId, maxAnisotropy: number): MapBuildResu
         new THREE.Vector3(14.5, 0, -12.5),
       ],
       ffa: [
-        new THREE.Vector3(-14.5, 0, -14.5),
+        new THREE.Vector3(-14.5 * S, 0, -14.5 * S),
         new THREE.Vector3(14.5, 0, 14.5),
         new THREE.Vector3(-14.5, 0, 14.5),
         new THREE.Vector3(14.5, 0, -14.5),

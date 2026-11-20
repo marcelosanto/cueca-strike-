@@ -57,10 +57,20 @@ interface Fighter {
   hitFlashTimer: number;
   walkPhase: number;
   squashY: number;
+  aiState: 'roam' | 'chase' | 'combat' | 'retreat';
+  aiReactTimer: number;          // atraso de reação ao ver o inimigo
+  aiLastSeen: THREE.Vector3;     // última posição conhecida do inimigo
+  aiLastSeenTimer: number;
+  aiStuckTimer: number;
+  aiLastPos: THREE.Vector3;
+  aiSkill: number;               // 0.5 (fraco) .. 1 (forte)
+
+
   // Bot AI fields
   aiTargetPos: THREE.Vector3;
   aiThinkTimer: number;
   aiStrafeDir: number;
+
 }
 
 interface Bullet {
@@ -701,6 +711,13 @@ export class CuecaGameEngine {
         aiTargetPos: new THREE.Vector3((Math.random() - 0.5) * 16, 0, (Math.random() - 0.5) * 16),
         aiThinkTimer: 0.4 + Math.random() * 0.6,
         aiStrafeDir: Math.random() > 0.5 ? 1 : -1,
+        aiState: 'roam',
+        aiReactTimer: 0,
+        aiLastSeen: new THREE.Vector3(),
+        aiLastSeenTimer: 0,
+        aiStuckTimer: 0,
+        aiLastPos: new THREE.Vector3(),
+        aiSkill: 0.55 + Math.random() * 0.4,
       };
       rig.setWeapon(fighter.weaponSlot);
       this.fighters.push(fighter);
@@ -964,81 +981,177 @@ export class CuecaGameEngine {
     }
   }
 
+  private isBlocked(x: number, z: number, r = 0.75): boolean {
+    if (!this.mapBuild) return false;
+    const half = this.mapBuild.arenaHalfSize - 0.5;
+    if (Math.abs(x) > half || Math.abs(z) > half) return true;
+    for (const c of this.mapBuild.colliders) {
+      if (c.height < 0.9) continue;
+      if (x > c.minX - r && x < c.maxX + r && z > c.minZ - r && z < c.maxZ + r) return true;
+    }
+    return false;
+  }
+
+  // Gira a direção desejada até achar um caminho livre à frente
+  private steer(bot: Fighter, dirX: number, dirZ: number): { x: number; z: number } {
+    const look = 1.8;
+    const base = Math.atan2(dirX, dirZ);
+    for (const off of [0, 0.6, -0.6, 1.2, -1.2, 1.9, -1.9]) {
+      const a = base + off;
+      const sx = Math.sin(a), sz = Math.cos(a);
+      if (
+        !this.isBlocked(bot.pos.x + sx * look, bot.pos.z + sz * look) &&
+        !this.isBlocked(bot.pos.x + sx * look * 0.5, bot.pos.z + sz * look * 0.5)
+      ) {
+        return { x: sx, z: sz };
+      }
+    }
+    return { x: -dirX, z: -dirZ };
+  }
+
+  private pickRoamTarget(bot: Fighter): void {
+    const half = (this.mapBuild?.arenaHalfSize ?? 18) - 3;
+    for (let i = 0; i < 12; i++) {
+      const x = (Math.random() * 2 - 1) * half;
+      const z = (Math.random() * 2 - 1) * half;
+      if (!this.isBlocked(x, z, 1.2)) {
+        bot.aiTargetPos.set(x, 0, z);
+        return;
+      }
+    }
+  }
+
   private stepBotAI(bot: Fighter, dt: number, titleDemo: boolean): void {
-    // Pick nearest enemy
-    let nearest: Fighter | null = null;
-    let bestDist = Infinity;
+    // --- escolhe alvo: o mais perto COM linha de visão tem prioridade ---
+    let target: Fighter | null = null;
+    let bestScore = Infinity;
     for (const other of this.fighters) {
       if (other.id === bot.id || !other.alive) continue;
       if (this.currentMode === 'tdm' && other.team === bot.team) continue;
-      const d = bot.pos.distanceToSquared(other.pos);
-      if (d < bestDist) {
-        bestDist = d;
-        nearest = other;
-      }
+      const d = bot.pos.distanceTo(other.pos);
+      const los = this.hasLineOfSight(bot.pos, other.pos);
+      const score = d + (los ? 0 : 18); // sem visão pesa mais
+      if (score < bestScore) { bestScore = score; target = other; }
     }
 
+    const dist = target ? bot.pos.distanceTo(target.pos) : Infinity;
+    const sees = !!target && dist < 30 && this.hasLineOfSight(bot.pos, target.pos);
+    const lowHp = bot.hp < bot.maxHp * 0.3;
+
+    // --- máquina de estados ---
+    if (sees && target) {
+      if (bot.aiState !== 'combat' && bot.aiState !== 'retreat') {
+        bot.aiReactTimer = (0.45 - bot.aiSkill * 0.3) + Math.random() * 0.2; // reação humana
+      }
+      bot.aiLastSeen.copy(target.pos);
+      bot.aiLastSeenTimer = 4;
+      bot.aiState = lowHp && dist < 16 ? 'retreat' : 'combat';
+    } else if (bot.aiLastSeenTimer > 0) {
+      bot.aiLastSeenTimer -= dt;
+      bot.aiState = 'chase';
+      bot.aiTargetPos.copy(bot.aiLastSeen);
+      if (bot.pos.distanceTo(bot.aiLastSeen) < 2) bot.aiLastSeenTimer = 0;
+    } else {
+      bot.aiState = 'roam';
+    }
+    bot.aiReactTimer = Math.max(0, bot.aiReactTimer - dt);
+
+    // troca de lado de strafe / novo ponto de passeio
     bot.aiThinkTimer -= dt;
     if (bot.aiThinkTimer <= 0) {
-      bot.aiThinkTimer = 0.7 + Math.random() * 0.9;
+      bot.aiThinkTimer = 0.8 + Math.random() * 1.2;
       bot.aiStrafeDir = Math.random() > 0.5 ? 1 : -1;
-      if (nearest && Math.sqrt(bestDist) > 9) {
-        bot.aiTargetPos.copy(nearest.pos);
-      } else {
-        bot.aiTargetPos.set(
-          (Math.random() - 0.5) * 26,
-          0,
-          (Math.random() - 0.5) * 26
-        );
-      }
+      if (bot.aiState === 'roam') this.pickRoamTarget(bot);
     }
+    if (bot.aiState === 'roam' && bot.pos.distanceTo(bot.aiTargetPos) < 2) this.pickRoamTarget(bot);
 
-    _v1.subVectors(bot.aiTargetPos, bot.pos);
-    _v1.y = 0;
-    const dist = _v1.length();
-    if (dist > 1.2) {
-      _v1.divideScalar(dist);
+    // --- direção desejada ---
+    let dx = 0, dz = 0;
+    if (bot.aiState === 'combat' && target) {
+      const tx = target.pos.x - bot.pos.x, tz = target.pos.z - bot.pos.z;
+      const len = Math.max(0.001, Math.hypot(tx, tz));
+      const fx = tx / len, fz = tz / len;
+      // mantém distância ideal (~10): avança se longe, recua se perto
+      const approach = dist > 13 ? 1 : dist < 6 ? -1 : 0;
+      dx = fx * approach + -fz * bot.aiStrafeDir * 0.8;
+      dz = fz * approach + fx * bot.aiStrafeDir * 0.8;
+    } else if (bot.aiState === 'retreat' && target) {
+      dx = bot.pos.x - target.pos.x;
+      dz = bot.pos.z - target.pos.z;
+    } else {
+      dx = bot.aiTargetPos.x - bot.pos.x;
+      dz = bot.aiTargetPos.z - bot.pos.z;
+    }
+    const dlen = Math.hypot(dx, dz);
+    if (dlen > 1.0) {
+      const s = this.steer(bot, dx / dlen, dz / dlen);
+      _v1.set(s.x, 0, s.z);
     } else {
       _v1.set(0, 0, 0);
     }
 
-    // Tactical strafe perpendicular to target
-    if (nearest) {
-      const toEnemyX = nearest.pos.x - bot.pos.x;
-      const toEnemyZ = nearest.pos.z - bot.pos.z;
-      const targetYaw = Math.atan2(toEnemyX, toEnemyZ);
-      // Smoothly turn towards enemy
+    // --- detecta travamento e pula / escolhe novo caminho ---
+    bot.aiStuckTimer += dt;
+    if (bot.aiStuckTimer > 0.7) {
+      const moved = bot.pos.distanceTo(bot.aiLastPos);
+      if (moved < 0.35 && _v1.lengthSq() > 0.1) {
+        bot.jumpBufferTimer = 0.14;
+        bot.aiStrafeDir *= -1;
+        if (bot.aiState === 'roam') this.pickRoamTarget(bot);
+      }
+      bot.aiLastPos.copy(bot.pos);
+      bot.aiStuckTimer = 0;
+    }
+    // pulo de esquiva ocasional em combate
+    if (bot.aiState === 'combat' && bot.onGround && Math.random() < dt * 0.35) {
+      bot.jumpBufferTimer = 0.14;
+    }
+
+    // --- mira (com antecipação do movimento) e tiro ---
+    const faceTarget = (bot.aiState === 'combat' || bot.aiState === 'retreat') ? target : null;
+    if (faceTarget) {
+      const w = WEAPONS[bot.weaponSlot];
+      const lead = Math.min(0.5, dist / Math.max(1, w.projectileSpeed)) * bot.aiSkill;
+      const ax = faceTarget.pos.x + faceTarget.vel.x * lead - bot.pos.x;
+      const az = faceTarget.pos.z + faceTarget.vel.z * lead - bot.pos.z;
+      const targetYaw = Math.atan2(ax, az);
       let diff = targetYaw - bot.yaw;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      bot.yaw += diff * Math.min(1, dt * 8);
+      bot.yaw += diff * Math.min(1, dt * (4 + bot.aiSkill * 5));
 
-      // Strafe blend
-      _v1.x += (-toEnemyZ / Math.max(1, Math.hypot(toEnemyX, toEnemyZ))) * bot.aiStrafeDir * 0.55;
-      _v1.z += (toEnemyX / Math.max(1, Math.hypot(toEnemyX, toEnemyZ))) * bot.aiStrafeDir * 0.55;
-      if (_v1.lengthSq() > 1) _v1.normalize();
-
-      const realDist = Math.sqrt(bestDist);
       if (
-        !titleDemo &&
-        realDist < 22 &&
-        bot.fireCooldown <= 0 &&
-        !bot.reloading &&
-        this.hasLineOfSight(bot.pos, nearest.pos)
+        !titleDemo && bot.aiState === 'combat' && bot.aiReactTimer <= 0 &&
+        dist < 28 && Math.abs(diff) < 0.35 &&
+        bot.fireCooldown <= 0 && !bot.reloading
       ) {
-        if (realDist < 12 && bot.ammo[3] > 0 && Math.random() < 0.06) {
-          bot.weaponSlot = 3;
-          bot.rig.setWeapon(3);
+        if (dist < 12 && bot.ammo[3] > 0 && Math.random() < 0.05) {
+          bot.weaponSlot = 3; bot.rig.setWeapon(3);
           this.tryFire(bot);
-          bot.weaponSlot = 2;
-          bot.rig.setWeapon(2);
+          bot.weaponSlot = 2; bot.rig.setWeapon(2);
         } else {
           this.tryFire(bot);
         }
       }
+    } else if (_v1.lengthSq() > 0.01) {
+      // olha para onde está andando
+      const targetYaw = Math.atan2(_v1.x, _v1.z);
+      let diff = targetYaw - bot.yaw;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      bot.yaw += diff * Math.min(1, dt * 6);
     }
 
-    const botSpeed = 5.4;
+    // recarrega escondido quando a munição está acabando
+    if (!sees && !bot.reloading && bot.weaponSlot !== 3) {
+      const w = WEAPONS[bot.weaponSlot];
+      if (bot.ammo[bot.weaponSlot] <= Math.ceil(w.magSize * 0.3)) {
+        bot.reloading = true;
+        bot.reloadTimer = w.reloadTime;
+      }
+    }
+
+    const botSpeed = 5.6 + bot.aiSkill * 0.8;
     bot.vel.x = THREE.MathUtils.damp(bot.vel.x, _v1.x * botSpeed, 10, dt);
     bot.vel.z = THREE.MathUtils.damp(bot.vel.z, _v1.z * botSpeed, 10, dt);
   }
