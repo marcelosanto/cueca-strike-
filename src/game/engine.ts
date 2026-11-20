@@ -154,7 +154,7 @@ export class CuecaGameEngine {
   private mobileFireHeld = false;
   private mouseAimWorld = new THREE.Vector3(0, 1.15, 0);
   private mobileMoveVec = new THREE.Vector2(0, 0);
-  private mobileAimVec = new THREE.Vector2(1, 0);
+  private mobileAimVec = new THREE.Vector2(0, 0);
   private usingMobileAim = false;
 
   private aimRingMesh: THREE.Mesh;
@@ -518,9 +518,12 @@ export class CuecaGameEngine {
   }
 
   public setMobileAim(dx: number, dy: number): void {
-    if (Math.hypot(dx, dy) > 0.08) {
+    const mag = Math.hypot(dx, dy);
+    if (mag > 0.08) {
       this.usingMobileAim = true;
-      this.mobileAimVec.set(dx, dy).normalize();
+      this.mobileAimVec.set(dx, dy).multiplyScalar(1 / Math.max(1, mag));
+    } else {
+      this.mobileAimVec.set(0, 0); // soltou o analógico: para de girar
     }
   }
 
@@ -941,17 +944,18 @@ export class CuecaGameEngine {
     // Gira a câmera/personagem no mobile ou quando sem pointer lock
     if (this.usingMobileAim) {
       p.yaw -= this.mobileAimVec.x * dt * 2.8;
-    } else if (document.pointerLockElement !== this.renderer.domElement) {
-      const dx = this.mouseAimWorld.x - p.pos.x;
-      const dz = this.mouseAimWorld.z - p.pos.z;
-      if (dx * dx + dz * dz > 0.04) {
-        const targetYaw = Math.atan2(dx, dz);
-        let diff = targetYaw - p.yaw;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        p.yaw += diff * Math.min(1, dt * 8);
-      }
     }
+    // } else if (document.pointerLockElement !== this.renderer.domElement) {
+    //   const dx = this.mouseAimWorld.x - p.pos.x;
+    //   const dz = this.mouseAimWorld.z - p.pos.z;
+    //   if (dx * dx + dz * dz > 0.04) {
+    //     const targetYaw = Math.atan2(dx, dz);
+    //     let diff = targetYaw - p.yaw;
+    //     while (diff > Math.PI) diff -= Math.PI * 2;
+    //     while (diff < -Math.PI) diff += Math.PI * 2;
+    //     p.yaw += diff * Math.min(1, dt * 8);
+    //   }
+    // }
 
     if (this.mouseFireHeld || this.mobileFireHeld) {
       if (WEAPONS[p.weaponSlot].automatic) {
@@ -1791,9 +1795,11 @@ export class CuecaGameEngine {
     this.aimRingMesh.visible = true;
     this.aimLineMesh.visible = true;
 
-    const aimDist = this.usingMobileAim
-      ? 9.0
-      : Math.max(3.5, Math.min(16, Math.hypot(this.mouseAimWorld.x - p.pos.x, this.mouseAimWorld.z - p.pos.z)));
+    const aimDist = 9.0;
+    //is.usingMobileAim
+    //: 9.0
+    // Math.max(3.5, Math.min(16, Math.hypot(this.mouseAimWorld.x - p.pos.x, this.mouseAimWorld.z - p.pos.z)));
+
     const aimHeight = p.pos.y + 1.28; // Mesma altura de saída da bala
     const tx = p.pos.x + Math.sin(p.yaw) * aimDist;
     const tz = p.pos.z + Math.cos(p.yaw) * aimDist;
